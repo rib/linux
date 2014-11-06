@@ -182,6 +182,7 @@
 #define CTX_LRI_HEADER_2		0x41
 #define CTX_R_PWR_CLK_STATE		0x42
 #define CTX_GPGPU_CSR_BASE_ADDRESS	0x44
+#define CTX_OACTXCONTROL		0x120
 
 #define GEN8_CTX_VALID (1<<0)
 #define GEN8_CTX_FORCE_PD_RESTORE (1<<1)
@@ -309,7 +310,8 @@ static void execlists_elsp_write(struct intel_engine_cs *ring,
 	intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
 }
 
-static int execlists_update_context(struct drm_i915_gem_object *ctx_obj,
+static int execlists_update_context(struct intel_engine_cs *ring,
+				    struct drm_i915_gem_object *ctx_obj,
 				    struct drm_i915_gem_object *ring_obj,
 				    u32 tail)
 {
@@ -340,7 +342,7 @@ static void execlists_submit_contexts(struct intel_engine_cs *ring,
 	WARN_ON(!i915_gem_obj_is_pinned(ctx_obj0));
 	WARN_ON(!i915_gem_obj_is_pinned(ringbuf0->obj));
 
-	execlists_update_context(ctx_obj0, ringbuf0->obj, tail0);
+	execlists_update_context(ring, ctx_obj0, ringbuf0->obj, tail0);
 
 	if (to1) {
 		ringbuf1 = to1->engine[ring->id].ringbuf;
@@ -349,7 +351,7 @@ static void execlists_submit_contexts(struct intel_engine_cs *ring,
 		WARN_ON(!i915_gem_obj_is_pinned(ctx_obj1));
 		WARN_ON(!i915_gem_obj_is_pinned(ringbuf1->obj));
 
-		execlists_update_context(ctx_obj1, ringbuf1->obj, tail1);
+		execlists_update_context(ring, ctx_obj1, ringbuf1->obj, tail1);
 	}
 
 	execlists_elsp_write(ring, ctx_obj0, ctx_obj1);
@@ -1719,6 +1721,8 @@ populate_lr_context(struct intel_context *ctx, struct drm_i915_gem_object *ctx_o
 		reg_state[CTX_R_PWR_CLK_STATE] = 0x20c8;
 		reg_state[CTX_R_PWR_CLK_STATE+1] = 0;
 	}
+	reg_state[CTX_OACTXCONTROL] = GEN8_OACTXCONTROL;
+	reg_state[CTX_OACTXCONTROL+1] = GEN8_OA_COUNTER_RESUME;
 
 	kunmap_atomic(reg_state);
 
