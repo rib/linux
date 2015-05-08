@@ -1315,7 +1315,7 @@ i915_gem_ringbuffer_submission(struct drm_device *dev, struct drm_file *file,
 
 	exec_len = args->batch_len;
 
-	i915_emit_profiling_data(ring, ctx);
+	i915_emit_profiling_data(ring, ctx, i915_execbuffer2_get_tag(*args));
 
 	if (cliprects) {
 		for (i = 0; i < args->num_cliprects; i++) {
@@ -1338,7 +1338,7 @@ i915_gem_ringbuffer_submission(struct drm_device *dev, struct drm_file *file,
 			return ret;
 	}
 
-	i915_emit_profiling_data(ring, ctx);
+	i915_emit_profiling_data(ring, ctx, i915_execbuffer2_get_tag(*args));
 
 	trace_i915_gem_ring_dispatch(intel_ring_get_request(ring), dispatch_flags);
 
