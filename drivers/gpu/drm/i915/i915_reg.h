@@ -1796,6 +1796,22 @@ enum punit_power_well {
 #define   CHV_FGT_EU_DIS_SS1_R1_SHIFT	28
 #define   CHV_FGT_EU_DIS_SS1_R1_MASK	(0xf << CHV_FGT_EU_DIS_SS1_R1_SHIFT)
 
+#define GEN8_FUSE2			0x9120
+#define   GEN8_F2_S_ENA_SHIFT		25
+#define   GEN8_F2_S_ENA_MASK		(0x7 << GEN8_F2_S_ENA_SHIFT)
+
+#define   GEN9_F2_SS_DIS_SHIFT		20
+#define   GEN9_F2_SS_DIS_MASK		(0xf << GEN9_F2_SS_DIS_SHIFT)
+
+#define GEN8_EU_DISABLE0                0x9134
+#define   GEN8_EU_DIS0_S0_MASK          0xffffff
+#define   GEN8_EU_DIS0_S1_SHIFT         24
+#define   GEN8_EU_DIS0_S1_MASK          (0xff << GEN8_EU_DIS0_S1_SHIFT)
+#define GEN8_EU_DISABLE1                0x9138
+#define   GEN8_EU_DIS1_S1_MASK          0xffff
+#define GEN8_EU_DISABLE2                0x913c
+#define GEN9_EU_DISABLE(slice)		(0x9134 + (slice)*0x4)
+
 #define GEN6_BSD_SLEEP_PSMI_CONTROL	0x12050
 #define   GEN6_BSD_SLEEP_MSG_DISABLE	(1 << 0)
 #define   GEN6_BSD_SLEEP_FLUSH_DISABLE	(1 << 2)
