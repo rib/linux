@@ -694,6 +694,7 @@ struct intel_device_info {
 	int palette_offsets[I915_MAX_PIPES];
 	int cursor_offsets[I915_MAX_PIPES];
 	unsigned int eu_total;
+	u32 slice_mask;
 };
 
 #undef DEFINE_FLAG

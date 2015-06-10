@@ -571,6 +571,8 @@ static void broadwell_sseu_info_init(struct drm_device *dev)
         eu_disable[1] = (eu_dis0 & GEN8_EU_DIS0_S1_MASK) >> 8;
         eu_disable[1] |= (eu_dis1 & GEN8_EU_DIS1_S1_MASK);
 
+	info->slice_mask = s_enable;
+
 	/*
 	 * Iterate through enabled slices and subslices to
 	 * count the total enabled EU.
