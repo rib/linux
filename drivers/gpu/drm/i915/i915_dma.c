@@ -572,6 +572,7 @@ static void broadwell_sseu_info_init(struct drm_device *dev)
         eu_disable[1] |= (eu_dis1 & GEN8_EU_DIS1_S1_MASK);
 
 	info->slice_mask = s_enable;
+	info->subslice_mask = ss_disable ^ ((1 << ss_max) - 1);
 
 	/*
 	 * Iterate through enabled slices and subslices to
