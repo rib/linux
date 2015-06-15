@@ -1660,8 +1660,7 @@ struct i915_oa_ops {
                                   struct intel_context *context);
        void (*context_unpin_notify)(struct drm_i915_private *dev_priv,
                                     struct intel_context *context);
-       void (*context_switch_notify)(struct drm_i915_private *dev_priv,
-                                     struct intel_engine_cs *ring);
+       void (*context_switch_notify)(struct intel_engine_cs *ring);
        void (*flush_oa_snapshots)(struct drm_i915_private *dev_priv,
                                   bool skip_if_flushing);
 };
@@ -1927,6 +1926,7 @@ struct drm_i915_private {
 
 		struct perf_event *exclusive_event;
 		struct intel_context *specific_ctx;
+		u32 specific_ctx_id;
 		bool event_active;
 
 		bool periodic;
@@ -1934,12 +1934,20 @@ struct drm_i915_private {
 
 		u32 metrics_set;
 
+		const struct i915_oa_reg *mux_regs;
+		int mux_regs_len;
+		const struct i915_oa_reg *b_counter_regs;
+		int b_counter_regs_len;
+		const struct i915_oa_reg *flex_regs;
+		int flex_regs_len;
+
 		struct {
 			struct drm_i915_gem_object *obj;
 			u32 gtt_offset;
 			u8 *addr;
 			u32 head;
 			u32 tail;
+			u32 last_ctx_id;
 			int format;
 			int format_size;
 			spinlock_t flush_lock;
@@ -3078,6 +3086,8 @@ void i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
 				struct intel_context *context);
 void i915_oa_context_unpin_notify(struct drm_i915_private *dev_priv,
 				  struct intel_context *context);
+void i915_oa_context_switch_notify(struct intel_engine_cs *ring);
+void i915_oa_update_context(struct intel_engine_cs *ring, uint32_t *reg_state);
 #else
 static inline void
 i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
@@ -3085,6 +3095,10 @@ i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
 static inline void
 i915_oa_context_unpin_notify(struct drm_i915_private *dev_priv,
 			     struct intel_context *context) {}
+static inline void
+i915_oa_context_switch_notify(struct intel_engine_cs *ring) {}
+static inline void
+i915_oa_update_context(struct intel_engine_cs *ring, uint32_t *reg_state) {}
 #endif
 
 /* i915_gem_evict.c */
