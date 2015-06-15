@@ -717,6 +717,8 @@ done:
 		}
 	}
 
+	i915_oa_context_switch_notify(ring);
+
 	return 0;
 
 unpin_out:

@@ -324,6 +324,15 @@ static int execlists_update_context(struct intel_engine_cs *ring,
 	reg_state[CTX_RING_TAIL+1] = tail;
 	reg_state[CTX_RING_BUFFER_START+1] = i915_gem_obj_ggtt_offset(ring_obj);
 
+	/* HAMMER TIME! (Later I imagine we should be able to take the execlist
+	 * lock, iterate all contexts and update OA state only when changing
+	 * the OA unit configuration. It also doesn't seem great to be)
+	 *
+	 * Note: a.t.m i915_oa doesn't actually care to program any per-context
+	 * state uniquely, we're just treating it as if it were global state...
+	 */
+	i915_oa_update_context(ring, reg_state);
+
 	kunmap_atomic(reg_state);
 
 	return 0;
