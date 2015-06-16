@@ -418,6 +418,7 @@ typedef struct drm_i915_irq_wait {
 #define I915_PARAM_HAS_BSD2		 31
 #define I915_PARAM_EU_TOTAL		 34
 #define I915_PARAM_SLICE_MASK		 35
+#define I915_PARAM_SUBSLICE_MASK	 36
 
 typedef struct drm_i915_getparam {
 	int param;
