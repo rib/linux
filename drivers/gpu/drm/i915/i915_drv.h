@@ -598,6 +598,7 @@ enum forcewake_domains {
 };
 
 struct intel_uncore_funcs {
+	int (*wait_for_rcs_busy)(struct drm_i915_private *dev_priv);
 	void (*force_wake_get)(struct drm_i915_private *dev_priv,
 							enum forcewake_domains domains);
 	void (*force_wake_put)(struct drm_i915_private *dev_priv,
@@ -623,6 +624,7 @@ struct intel_uncore {
 
 	struct intel_uncore_funcs funcs;
 
+	unsigned hold_rcs_busy_count;
 	unsigned fifo_count;
 	enum forcewake_domains fw_domains;
 
@@ -1660,7 +1662,7 @@ struct i915_oa_ops {
                                   struct intel_context *context);
        void (*context_unpin_notify)(struct drm_i915_private *dev_priv,
                                     struct intel_context *context);
-       void (*context_switch_notify)(struct intel_engine_cs *ring);
+       void (*legacy_ctx_switch_notify)(struct intel_engine_cs *ring);
        void (*flush_oa_snapshots)(struct drm_i915_private *dev_priv,
                                   bool skip_if_flushing);
 };
@@ -1952,6 +1954,9 @@ struct drm_i915_private {
 			int format_size;
 			spinlock_t flush_lock;
 		} oa_buffer;
+
+		u32 ctx_oactxctrl_off;
+		u32 ctx_flexeu0_off;
 
 		struct i915_oa_ops ops;
 	} oa_pmu;
@@ -2658,6 +2663,8 @@ void intel_uncore_forcewake_get(struct drm_i915_private *dev_priv,
 void intel_uncore_forcewake_put(struct drm_i915_private *dev_priv,
 				enum forcewake_domains domains);
 void assert_forcewakes_inactive(struct drm_i915_private *dev_priv);
+int intel_uncore_begin_ctx_mmio(struct drm_i915_private *dev_priv);
+void intel_uncore_end_ctx_mmio(struct drm_i915_private *dev_priv);
 
 void
 i915_enable_pipestat(struct drm_i915_private *dev_priv, enum pipe pipe,
@@ -3086,8 +3093,8 @@ void i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
 				struct intel_context *context);
 void i915_oa_context_unpin_notify(struct drm_i915_private *dev_priv,
 				  struct intel_context *context);
-void i915_oa_context_switch_notify(struct intel_engine_cs *ring);
-void i915_oa_update_context(struct intel_engine_cs *ring, uint32_t *reg_state);
+void i915_oa_legacy_ctx_switch_notify(struct intel_engine_cs *ring);
+void i915_oa_update_reg_state(struct intel_engine_cs *ring, uint32_t *reg_state);
 #else
 static inline void
 i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
@@ -3096,9 +3103,9 @@ static inline void
 i915_oa_context_unpin_notify(struct drm_i915_private *dev_priv,
 			     struct intel_context *context) {}
 static inline void
-i915_oa_context_switch_notify(struct intel_engine_cs *ring) {}
+i915_oa_legacy_ctx_switch_notify(struct intel_engine_cs *ring) {}
 static inline void
-i915_oa_update_context(struct intel_engine_cs *ring, uint32_t *reg_state) {}
+i915_oa_update_reg_state(struct intel_engine_cs *ring, uint32_t *reg_state) {}
 #endif
 
 /* i915_gem_evict.c */

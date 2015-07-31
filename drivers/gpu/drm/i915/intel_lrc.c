@@ -182,7 +182,6 @@
 #define CTX_LRI_HEADER_2		0x41
 #define CTX_R_PWR_CLK_STATE		0x42
 #define CTX_GPGPU_CSR_BASE_ADDRESS	0x44
-#define CTX_OACTXCONTROL		0x120
 
 #define GEN8_CTX_VALID (1<<0)
 #define GEN8_CTX_FORCE_PD_RESTORE (1<<1)
@@ -324,14 +323,7 @@ static int execlists_update_context(struct intel_engine_cs *ring,
 	reg_state[CTX_RING_TAIL+1] = tail;
 	reg_state[CTX_RING_BUFFER_START+1] = i915_gem_obj_ggtt_offset(ring_obj);
 
-	/* HAMMER TIME! (Later I imagine we should be able to take the execlist
-	 * lock, iterate all contexts and update OA state only when changing
-	 * the OA unit configuration. It also doesn't seem great to be)
-	 *
-	 * Note: a.t.m i915_oa doesn't actually care to program any per-context
-	 * state uniquely, we're just treating it as if it were global state...
-	 */
-	i915_oa_update_context(ring, reg_state);
+	i915_oa_update_reg_state(ring, reg_state);
 
 	kunmap_atomic(reg_state);
 
@@ -1730,8 +1722,8 @@ populate_lr_context(struct intel_context *ctx, struct drm_i915_gem_object *ctx_o
 		reg_state[CTX_R_PWR_CLK_STATE] = 0x20c8;
 		reg_state[CTX_R_PWR_CLK_STATE+1] = 0;
 	}
-	reg_state[CTX_OACTXCONTROL] = GEN8_OACTXCONTROL;
-	reg_state[CTX_OACTXCONTROL+1] = GEN8_OA_COUNTER_RESUME;
+
+	i915_oa_update_reg_state(ring, reg_state);
 
 	kunmap_atomic(reg_state);
 
