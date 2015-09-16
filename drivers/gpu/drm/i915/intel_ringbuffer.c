@@ -1985,12 +1985,19 @@ static int intel_ring_context_pin(struct i915_gem_context *ctx,
 		return 0;
 
 	if (ce->state) {
+		u64 vma_flags = PIN_GLOBAL | PIN_HIGH;
+
 		ret = i915_gem_object_set_to_gtt_domain(ce->state->obj, false);
 		if (ret)
 			goto error;
 
-		ret = i915_vma_pin(ce->state, 0, ctx->ggtt_alignment,
-				   PIN_GLOBAL | PIN_HIGH);
+		if (engine->id == RCS) {
+			ret = i915_gem_context_pin_legacy_rcs_state(engine->i915,
+								    ctx,
+								    vma_flags);
+		} else
+			ret = i915_vma_pin(ce->state, 0, ctx->ggtt_alignment,
+					   vma_flags);
 		if (ret)
 			goto error;
 	}
