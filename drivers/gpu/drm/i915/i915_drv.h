@@ -49,6 +49,7 @@
 #include <linux/hashtable.h>
 #include <linux/intel-iommu.h>
 #include <linux/kref.h>
+#include <linux/perf_event.h>
 #include <linux/pm_qos.h>
 #include "intel_guc.h"
 
@@ -1694,6 +1695,32 @@ struct i915_execbuffer_params {
 	struct drm_i915_gem_request     *request;
 };
 
+#ifdef CONFIG_PERF_EVENTS
+struct i915_oa_format {
+	u32 format;
+	int size;
+};
+
+struct i915_oa_reg {
+	u32 addr;
+	u32 value;
+};
+
+struct i915_oa_ops {
+	void (*init_oa_buffer)(struct perf_event *event);
+	void (*enable_metric_set)(struct perf_event *event);
+	void (*disable_metric_set)(struct perf_event *event);
+	void (*event_start)(struct perf_event *event, int flags);
+	void (*event_stop)(struct perf_event *event, int flags);
+	void (*update_oacontrol)(struct drm_i915_private *dev_priv);
+	void (*update_specific_hw_ctx_id)(struct drm_i915_private *dev_priv,
+					  u32 ctx_id);
+	void (*legacy_ctx_switch_notify)(struct drm_i915_gem_request *req);
+	void (*flush_oa_snapshots)(struct drm_i915_private *dev_priv,
+				   bool skip_if_flushing);
+};
+#endif
+
 struct drm_i915_private {
 	struct drm_device *dev;
 	struct kmem_cache *objects;
@@ -1927,6 +1954,47 @@ struct drm_i915_private {
 	} wm;
 
 	struct i915_runtime_pm pm;
+
+#ifdef CONFIG_PERF_EVENTS
+	struct {
+		struct pmu pmu;
+		spinlock_t lock;
+		struct hrtimer timer;
+		struct pt_regs dummy_regs;
+
+		struct ctl_table_header *sysctl_header;
+
+		struct perf_event *exclusive_event;
+		struct intel_context *specific_ctx;
+		u32 specific_ctx_id;
+		bool event_active;
+
+		bool periodic;
+		u32 period_exponent;
+
+		u32 metrics_set;
+
+		const struct i915_oa_reg *mux_regs;
+		int mux_regs_len;
+		const struct i915_oa_reg *b_counter_regs;
+		int b_counter_regs_len;
+
+		struct {
+			struct drm_i915_gem_object *obj;
+			u32 gtt_offset;
+			u8 *addr;
+			u32 head;
+			u32 tail;
+			u32 last_ctx_id;
+			int format;
+			int format_size;
+			spinlock_t flush_lock;
+		} oa_buffer;
+
+		struct i915_oa_ops ops;
+		const struct i915_oa_format *oa_formats;
+	} oa_pmu;
+#endif
 
 	/* Abstract the submission mechanism (legacy ringbuffer or execlists) away */
 	struct {
@@ -3130,6 +3198,18 @@ int i915_gem_context_getparam_ioctl(struct drm_device *dev, void *data,
 int i915_gem_context_setparam_ioctl(struct drm_device *dev, void *data,
 				    struct drm_file *file_priv);
 
+#ifdef CONFIG_PERF_EVENTS
+void i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
+				struct intel_context *context);
+void i915_oa_legacy_ctx_switch_notify(struct drm_i915_gem_request *req);
+#else
+static inline void
+i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
+			   struct intel_context *context) {}
+static inline void
+i915_oa_legacy_ctx_switch_notify(struct intel_engine_cs *ring) {}
+#endif
+
 /* i915_gem_evict.c */
 int __must_check i915_gem_evict_something(struct drm_device *dev,
 					  struct i915_address_space *vm,
@@ -3238,6 +3318,15 @@ int i915_parse_cmds(struct intel_engine_cs *ring,
 		    u32 batch_start_offset,
 		    u32 batch_len,
 		    bool is_master);
+
+/* i915_pmu.c */
+#ifdef CONFIG_PERF_EVENTS
+extern void i915_oa_pmu_register(struct drm_device *dev);
+extern void i915_oa_pmu_unregister(struct drm_device *dev);
+#else
+static inline void i915_oa_pmu_register(struct drm_device *dev) {}
+static inline void i915_oa_pmu_unregister(struct drm_device *dev) {}
+#endif
 
 /* i915_suspend.c */
 extern int i915_save_state(struct drm_device *dev);
