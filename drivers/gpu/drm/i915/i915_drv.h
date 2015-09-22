@@ -1985,6 +1985,8 @@ struct drm_i915_private {
 		int mux_regs_len;
 		const struct i915_oa_reg *b_counter_regs;
 		int b_counter_regs_len;
+		const struct i915_oa_reg *flex_regs;
+		int flex_regs_len;
 
 		struct {
 			struct drm_i915_gem_object *obj;
@@ -1997,6 +1999,9 @@ struct drm_i915_private {
 			int format_size;
 			spinlock_t flush_lock;
 		} oa_buffer;
+
+		u32 ctx_oactxctrl_off;
+		u32 ctx_flexeu0_off;
 
 		struct i915_oa_ops ops;
 		const struct i915_oa_format *oa_formats;
@@ -3211,12 +3216,15 @@ int i915_gem_context_setparam_ioctl(struct drm_device *dev, void *data,
 void i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
 				struct intel_context *context);
 void i915_oa_legacy_ctx_switch_notify(struct drm_i915_gem_request *req);
+void i915_oa_update_reg_state(struct intel_engine_cs *ring, uint32_t *reg_state);
 #else
 static inline void
 i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
 			   struct intel_context *context) {}
 static inline void
 i915_oa_legacy_ctx_switch_notify(struct intel_engine_cs *ring) {}
+static inline void
+i915_oa_update_reg_state(struct intel_engine_cs *ring, uint32_t *reg_state) {}
 #endif
 
 /* i915_gem_evict.c */

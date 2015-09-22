@@ -3,7 +3,11 @@
 
 #include "i915_drv.h"
 #include "intel_ringbuffer.h"
+#include "intel_lrc.h"
 #include "i915_oa_hsw.h"
+#include "i915_oa_bdw.h"
+#include "i915_oa_chv.h"
+#include "i915_oa_skl.h"
 
 /* Must be a power of two */
 #define OA_BUFFER_SIZE	     SZ_16M
@@ -43,6 +47,13 @@ static struct i915_oa_format hsw_oa_formats[I915_OA_FORMAT_MAX] = {
 	[I915_OA_FORMAT_A45_B8_C8]  = { 5, 256 },
 	[I915_OA_FORMAT_B4_C8_A16]  = { 6, 128 },
 	[I915_OA_FORMAT_C4_B8]	    = { 7, 64 },
+};
+
+static struct i915_oa_format gen8_plus_oa_formats[I915_OA_FORMAT_MAX] = {
+	[I915_OA_FORMAT_A12]		    = { 0, 64 },
+	[I915_OA_FORMAT_A12_B8_C8]	    = { 2, 128 },
+	[I915_OA_FORMAT_A32u40_A4u32_B8_C8] = { 5, 256 },
+	[I915_OA_FORMAT_C4_B8]		    = { 7, 64 },
 };
 
 static void forward_one_oa_snapshot_to_event(struct drm_i915_private *dev_priv,
@@ -97,6 +108,131 @@ static void log_oa_status(struct drm_i915_private *dev_priv,
 	perf_output_put(&handle, oa_event);
 	perf_event__output_id_sample(event, &handle, &sample_data);
 	perf_output_end(&handle);
+}
+
+static u32 gen8_forward_oa_snapshots(struct drm_i915_private *dev_priv,
+				     u32 head,
+				     u32 tail)
+{
+	struct perf_event *exclusive_event = dev_priv->oa_pmu.exclusive_event;
+	int snapshot_size = dev_priv->oa_pmu.oa_buffer.format_size;
+	u8 *oa_buf_base = dev_priv->oa_pmu.oa_buffer.addr;
+	u32 mask = (OA_BUFFER_SIZE - 1);
+	u8 *snapshot;
+	u32 taken;
+
+	head -= dev_priv->oa_pmu.oa_buffer.gtt_offset;
+	tail -= dev_priv->oa_pmu.oa_buffer.gtt_offset;
+
+	/* Note: the gpu doesn't wrap the tail according to the OA buffer size
+	 * so when we need to make sure our head/tail values are in-bounds we
+	 * use the above mask.
+	 */
+
+	while ((taken = OA_TAKEN(tail, head))) {
+		u32 ctx_id;
+
+		/* The tail increases in 64 byte increments, not in
+		 * format_size steps. */
+		if (taken < snapshot_size)
+			break;
+
+		/* All the report sizes factor neatly into the buffer
+		 * size so we never expect to see a report split
+		 * between the beginning and end of the buffer... */
+		BUG_ON((OA_BUFFER_SIZE - (head & mask)) < snapshot_size);
+
+		snapshot = oa_buf_base + (head & mask);
+
+		ctx_id = *(u32 *)(snapshot + 12);
+		if (i915.enable_execlists) {
+			/* XXX: Just keep the lower 20 bits for now since I'm
+			 * not entirely sure if the HW touches any of the higher
+			 * bits */
+			ctx_id &= 0xfffff;
+		}
+
+		if (dev_priv->oa_pmu.event_active) {
+
+			/* NB: For Gen 8 we handle per-context report filtering
+			 * ourselves instead of programming the OA unit with a
+			 * specific context id.
+			 *
+			 * NB: To allow userspace to calculate all counter
+			 * deltas for a specific context we have to send the
+			 * first report belonging to any subsequently
+			 * switched-too context.
+			 */
+			if (!dev_priv->oa_pmu.specific_ctx ||
+			    (dev_priv->oa_pmu.specific_ctx_id == ctx_id ||
+			     (dev_priv->oa_pmu.specific_ctx_id !=
+			      dev_priv->oa_pmu.oa_buffer.last_ctx_id))) {
+
+				forward_one_oa_snapshot_to_event(dev_priv,
+								 snapshot,
+								 exclusive_event);
+			}
+		}
+
+		dev_priv->oa_pmu.oa_buffer.last_ctx_id = ctx_id;
+		head += snapshot_size;
+	}
+
+	return dev_priv->oa_pmu.oa_buffer.gtt_offset + head;
+}
+
+static void gen8_flush_oa_snapshots_locked(struct drm_i915_private *dev_priv)
+{
+	u32 oastatus;
+	u32 head;
+	u32 tail;
+
+	WARN_ON(!dev_priv->oa_pmu.oa_buffer.addr);
+
+	head = I915_READ(GEN8_OAHEADPTR);
+	tail = I915_READ(GEN8_OATAILPTR);
+	oastatus = I915_READ(GEN8_OASTATUS);
+
+	if (unlikely(oastatus & (GEN8_OASTATUS_OABUFFER_OVERFLOW |
+				 GEN8_OASTATUS_REPORT_LOST))) {
+
+		if (oastatus & GEN8_OASTATUS_OABUFFER_OVERFLOW)
+			log_oa_status(dev_priv, I915_OA_RECORD_BUFFER_OVERFLOW);
+
+		if (oastatus & GEN8_OASTATUS_REPORT_LOST)
+			log_oa_status(dev_priv, I915_OA_RECORD_REPORT_LOST);
+
+		I915_WRITE(GEN8_OASTATUS, oastatus &
+			   ~(GEN8_OASTATUS_OABUFFER_OVERFLOW |
+			     GEN8_OASTATUS_REPORT_LOST));
+	}
+
+	head = gen8_forward_oa_snapshots(dev_priv, head, tail);
+
+	I915_WRITE(GEN8_OAHEADPTR, head);
+}
+
+static void gen8_flush_oa_snapshots(struct drm_i915_private *dev_priv,
+				    bool skip_if_flushing)
+{
+	unsigned long flags;
+
+	/* Can either flush via hrtimer callback or pmu methods/fops */
+	if (skip_if_flushing) {
+
+		/* If the hrtimer triggers at the same time that we are
+		 * responding to a userspace initiated flush then we can
+		 * just bail out...
+		 */
+		if (!spin_trylock_irqsave(&dev_priv->oa_pmu.oa_buffer.flush_lock,
+					  flags))
+			return;
+	} else
+		spin_lock_irqsave(&dev_priv->oa_pmu.oa_buffer.flush_lock, flags);
+
+	gen8_flush_oa_snapshots_locked(dev_priv);
+
+	spin_unlock_irqrestore(&dev_priv->oa_pmu.oa_buffer.flush_lock, flags);
 }
 
 static u32 gen7_forward_oa_snapshots(struct drm_i915_private *dev_priv,
@@ -287,6 +423,26 @@ static void gen7_init_oa_buffer(struct perf_event *event)
 		   OABUFFER_SIZE_16M); /* tail */
 }
 
+static void gen8_init_oa_buffer(struct perf_event *event)
+{
+	struct drm_i915_private *dev_priv =
+		container_of(event->pmu, typeof(*dev_priv), oa_pmu.pmu);
+
+	I915_WRITE(GEN8_OAHEADPTR,
+		   dev_priv->oa_pmu.oa_buffer.gtt_offset);
+	/* PRM says:
+	 *
+	 *  "This MMIO must be set before the OATAILPTR
+	 *  register and after the OAHEADPTR register. This is
+	 *  to enable proper functionality of the overflow
+	 *  bit."
+	 */
+	I915_WRITE(GEN8_OABUFFER, dev_priv->oa_pmu.oa_buffer.gtt_offset |
+		   OABUFFER_SIZE_16M | OA_MEM_SELECT_GGTT);
+	I915_WRITE(GEN8_OATAILPTR,
+		   dev_priv->oa_pmu.oa_buffer.gtt_offset);
+}
+
 static int alloc_oa_buffer(struct perf_event *event)
 {
 	struct drm_i915_private *dev_priv =
@@ -383,6 +539,8 @@ static void hsw_enable_metric_set(struct perf_event *event)
 
 	dev_priv->oa_pmu.mux_regs = NULL;
 	dev_priv->oa_pmu.mux_regs_len = 0;
+	dev_priv->oa_pmu.flex_regs = NULL;
+	dev_priv->oa_pmu.flex_regs_len = 0;
 	dev_priv->oa_pmu.b_counter_regs = NULL;
 	dev_priv->oa_pmu.b_counter_regs_len = 0;
 
@@ -456,6 +614,247 @@ static void hsw_disable_metric_set(struct perf_event *event)
 
 	I915_WRITE(GDT_CHICKEN_BITS, (I915_READ(GDT_CHICKEN_BITS) &
 				      ~GT_NOA_ENABLE));
+}
+
+/* Manages updating the per-context aspects of the OA event
+ * configuration across all contexts.
+ *
+ * The awkward consideration here is that OACTXCONTROL controls the
+ * exponent for periodic sampling which is primarily used for system
+ * wide profiling where we'd like a consistent sampling period even in
+ * the face of context switches.
+ *
+ * Our approach of updating the register state context (as opposed to
+ * say using a workaround batch buffer) ensures that the hardware
+ * won't automatically reload an out-of-date timer exponent even
+ * transiently before a WA BB could be parsed.
+ *
+ * Note: Only to be called in process context (i.e. during
+ * i915_oa_event_init/destroy)
+ */
+static int configure_all_contexts(struct drm_i915_private *dev_priv)
+{
+	struct drm_device *dev = dev_priv->dev;
+	struct intel_context *ctx;
+	struct intel_engine_cs *ring;
+	int ring_id;
+	int ret;
+
+	ret = mutex_lock_interruptible(&dev->struct_mutex);
+	if (ret)
+		return ret;
+
+	list_for_each_entry(ctx, &dev_priv->context_list, link) {
+
+		for_each_ring(ring, dev_priv, ring_id) {
+			/* The actual update of the register state context
+			 * will happen the next time this logical ring
+			 * is submitted. (See i915_oa_update_reg_state()
+			 * which hooks into execlists_update_context())
+			 */
+			atomic_set(&ring->oa_state_dirty, true);
+		}
+	}
+
+	mutex_unlock(&dev->struct_mutex);
+
+	/* Now update the current context.
+	 *
+	 * Note: Using MMIO to update per-context registers requires
+	 * some extra care...
+	 */
+	ret = intel_uncore_begin_ctx_mmio(dev_priv);
+	if (ret) {
+		DRM_ERROR("Faild to bring RCS out of idle to update current ctx OA state");
+		return ret;
+	}
+
+	I915_WRITE(GEN8_OACTXCONTROL, ((dev_priv->oa_pmu.period_exponent <<
+					GEN8_OA_TIMER_PERIOD_SHIFT) |
+				      (dev_priv->oa_pmu.periodic ?
+				       GEN8_OA_TIMER_ENABLE : 0) |
+				      GEN8_OA_COUNTER_RESUME));
+
+	config_oa_regs(dev_priv, dev_priv->oa_pmu.flex_regs,
+			dev_priv->oa_pmu.flex_regs_len);
+
+	intel_uncore_end_ctx_mmio(dev_priv);
+
+	return 0;
+}
+
+static void bdw_enable_metric_set(struct perf_event *event)
+{
+	struct drm_i915_private *dev_priv =
+		container_of(event->pmu, typeof(*dev_priv), oa_pmu.pmu);
+
+	dev_priv->oa_pmu.mux_regs = NULL;
+	dev_priv->oa_pmu.mux_regs_len = 0;
+	dev_priv->oa_pmu.b_counter_regs = NULL;
+	dev_priv->oa_pmu.b_counter_regs_len = 0;
+	dev_priv->oa_pmu.flex_regs = NULL;
+	dev_priv->oa_pmu.flex_regs_len = 0;
+
+	switch (dev_priv->oa_pmu.metrics_set) {
+	case I915_OA_METRICS_SET_3D:
+		if (INTEL_INFO(dev_priv)->slice_mask & 0x1) {
+			dev_priv->oa_pmu.mux_regs =
+				i915_oa_3d_mux_config_1_0_slice_mask_0x01_bdw;
+			dev_priv->oa_pmu.mux_regs_len =
+				i915_oa_3d_mux_config_1_0_slice_mask_0x01_bdw_len;
+		} else if (INTEL_INFO(dev_priv)->slice_mask & 0x2) {
+			dev_priv->oa_pmu.mux_regs =
+				i915_oa_3d_mux_config_1_1_slice_mask_0x02_bdw;
+			dev_priv->oa_pmu.mux_regs_len =
+				i915_oa_3d_mux_config_1_1_slice_mask_0x02_bdw_len;
+		}
+
+		dev_priv->oa_pmu.b_counter_regs =
+			i915_oa_3d_b_counter_config_bdw;
+		dev_priv->oa_pmu.b_counter_regs_len =
+			i915_oa_3d_b_counter_config_bdw_len;
+
+		dev_priv->oa_pmu.flex_regs = i915_oa_3d_flex_eu_config_bdw;
+		dev_priv->oa_pmu.flex_regs_len = i915_oa_3d_flex_eu_config_bdw_len;
+		break;
+	default:
+		BUG(); /* should have been validated in _init */
+		return;
+	}
+
+	I915_WRITE(GDT_CHICKEN_BITS, 0xA0);
+	config_oa_regs(dev_priv, dev_priv->oa_pmu.mux_regs,
+		       dev_priv->oa_pmu.mux_regs_len);
+	I915_WRITE(GDT_CHICKEN_BITS, 0x80);
+	config_oa_regs(dev_priv, dev_priv->oa_pmu.b_counter_regs,
+		       dev_priv->oa_pmu.b_counter_regs_len);
+
+	configure_all_contexts(dev_priv);
+}
+
+static void bdw_disable_metric_set(struct perf_event *event)
+{
+	struct drm_i915_private *dev_priv =
+		container_of(event->pmu, typeof(*dev_priv), oa_pmu.pmu);
+
+	I915_WRITE(GEN6_UCGCTL1, (I915_READ(GEN6_UCGCTL1) &
+				  ~GEN6_CSUNIT_CLOCK_GATE_DISABLE));
+	I915_WRITE(GEN7_MISCCPCTL, (I915_READ(GEN7_MISCCPCTL) |
+				    GEN7_DOP_CLOCK_GATE_ENABLE));
+#warning "BDW: Do we need to write to CHICKEN2 to disable DOP clock gating when idle? (vpg does this)"
+}
+
+static void chv_enable_metric_set(struct perf_event *event)
+{
+	struct drm_i915_private *dev_priv =
+		container_of(event->pmu, typeof(*dev_priv), oa_pmu.pmu);
+
+	dev_priv->oa_pmu.mux_regs = NULL;
+	dev_priv->oa_pmu.mux_regs_len = 0;
+	dev_priv->oa_pmu.flex_regs = NULL;
+	dev_priv->oa_pmu.flex_regs_len = 0;
+	dev_priv->oa_pmu.b_counter_regs = NULL;
+	dev_priv->oa_pmu.b_counter_regs_len = 0;
+
+	switch (dev_priv->oa_pmu.metrics_set) {
+	case I915_OA_METRICS_SET_3D:
+		dev_priv->oa_pmu.mux_regs = i915_oa_3d_mux_config_chv;
+		dev_priv->oa_pmu.mux_regs_len = i915_oa_3d_mux_config_chv_len;
+
+		dev_priv->oa_pmu.b_counter_regs =
+			i915_oa_3d_b_counter_config_chv;
+		dev_priv->oa_pmu.b_counter_regs_len =
+			i915_oa_3d_b_counter_config_chv_len;
+
+		dev_priv->oa_pmu.flex_regs = i915_oa_3d_flex_eu_config_chv;
+		dev_priv->oa_pmu.flex_regs_len = i915_oa_3d_flex_eu_config_chv_len;
+		break;
+	default:
+		BUG(); /* should have been validated in _init */
+		return;
+	}
+
+	I915_WRITE(GDT_CHICKEN_BITS, 0xA0);
+	config_oa_regs(dev_priv, dev_priv->oa_pmu.mux_regs,
+		       dev_priv->oa_pmu.mux_regs_len);
+	I915_WRITE(GDT_CHICKEN_BITS, 0x80);
+	config_oa_regs(dev_priv, dev_priv->oa_pmu.b_counter_regs,
+		       dev_priv->oa_pmu.b_counter_regs_len);
+
+	configure_all_contexts(dev_priv);
+}
+
+static void chv_disable_metric_set(struct perf_event *event)
+{
+	struct drm_i915_private *dev_priv =
+		container_of(event->pmu, typeof(*dev_priv), oa_pmu.pmu);
+
+	I915_WRITE(GEN6_UCGCTL1, (I915_READ(GEN6_UCGCTL1) &
+				  ~GEN6_CSUNIT_CLOCK_GATE_DISABLE));
+	I915_WRITE(GEN7_MISCCPCTL, (I915_READ(GEN7_MISCCPCTL) |
+				    GEN7_DOP_CLOCK_GATE_ENABLE));
+#warning "CHV: Do we need to write to CHICKEN2 to disable DOP clock gating when idle? (vpg does this)"
+}
+
+static void skl_enable_metric_set(struct perf_event *event)
+{
+	struct drm_i915_private *dev_priv =
+		container_of(event->pmu, typeof(*dev_priv), oa_pmu.pmu);
+
+	dev_priv->oa_pmu.mux_regs = NULL;
+	dev_priv->oa_pmu.mux_regs_len = 0;
+	dev_priv->oa_pmu.b_counter_regs = NULL;
+	dev_priv->oa_pmu.b_counter_regs_len = 0;
+	dev_priv->oa_pmu.flex_regs = NULL;
+	dev_priv->oa_pmu.flex_regs_len = 0;
+
+	switch (dev_priv->oa_pmu.metrics_set) {
+	case I915_OA_METRICS_SET_3D:
+		if (dev_priv->dev->pdev->revision < 2) {
+			dev_priv->oa_pmu.mux_regs =
+				i915_oa_3d_mux_config_1_1_sku_0x02_ult_skl;
+			dev_priv->oa_pmu.mux_regs_len =
+				i915_oa_3d_mux_config_1_1_sku_0x02_ult_skl_len;
+		} else {
+			dev_priv->oa_pmu.mux_regs =
+				i915_oa_3d_mux_config_1_1_sku_0x02_ugte_skl;
+			dev_priv->oa_pmu.mux_regs_len =
+				i915_oa_3d_mux_config_1_1_sku_0x02_ugte_skl_len;
+		}
+
+		dev_priv->oa_pmu.b_counter_regs =
+			i915_oa_3d_b_counter_config_skl;
+		dev_priv->oa_pmu.b_counter_regs_len =
+			i915_oa_3d_b_counter_config_skl_len;
+
+		dev_priv->oa_pmu.flex_regs = i915_oa_3d_flex_eu_config_skl;
+		dev_priv->oa_pmu.flex_regs_len = i915_oa_3d_flex_eu_config_skl_len;
+		break;
+	default:
+		BUG(); /* should have been validated in _init */
+		return;
+	}
+
+	I915_WRITE(GDT_CHICKEN_BITS, 0xA0);
+	config_oa_regs(dev_priv, dev_priv->oa_pmu.mux_regs,
+		       dev_priv->oa_pmu.mux_regs_len);
+	I915_WRITE(GDT_CHICKEN_BITS, 0x80);
+	config_oa_regs(dev_priv, dev_priv->oa_pmu.b_counter_regs,
+		       dev_priv->oa_pmu.b_counter_regs_len);
+
+	configure_all_contexts(dev_priv);
+}
+
+static void skl_disable_metric_set(struct perf_event *event)
+{
+	struct drm_i915_private *dev_priv =
+		container_of(event->pmu, typeof(*dev_priv), oa_pmu.pmu);
+
+	I915_WRITE(GEN6_UCGCTL1, (I915_READ(GEN6_UCGCTL1) &
+				  ~GEN6_CSUNIT_CLOCK_GATE_DISABLE));
+	I915_WRITE(GEN7_MISCCPCTL, (I915_READ(GEN7_MISCCPCTL) |
+				    GEN7_DOP_CLOCK_GATE_ENABLE));
+#warning "SKL: Do we need to write to CHICKEN2 to disable DOP clock gating when idle? (vpg does this)"
 }
 
 static struct intel_context *
@@ -539,6 +938,13 @@ static int i915_oa_event_init(struct perf_event *event)
 			DRM_ERROR("Metric set not available\n");
 			return -EINVAL;
 		}
+	} else if (IS_BROADWELL(dev_priv->dev) ||
+		   IS_CHERRYVIEW(dev_priv->dev) ||
+		   IS_SKYLAKE(dev_priv->dev)) {
+		if (oa_attr.metrics_set != I915_OA_METRICS_SET_3D) {
+			DRM_ERROR("Metric set not available\n");
+			return -EINVAL;
+		}
 	} else {
 		BUG(); /* pmu shouldn't have been registered */
 		return -ENODEV;
@@ -613,6 +1019,13 @@ static int i915_oa_event_init(struct perf_event *event)
 		ret = -EACCES;
 		goto err_ctx;
 	}
+
+	/* We have stable HW context IDs with execlists, whereas with
+	 * a legacy context we need to consider that its pinned
+	 * address could change. */
+	if (i915.enable_execlists && dev_priv->oa_pmu.specific_ctx)
+		dev_priv->oa_pmu.specific_ctx_id =
+			intel_execlists_ctx_id(dev_priv->oa_pmu.specific_ctx);
 
 	ret = alloc_oa_buffer(event);
 	if (ret)
@@ -710,6 +1123,25 @@ static void gen7_event_start(struct perf_event *event, int flags)
 				    OA_MEM_SELECT_GGTT);
 }
 
+static void gen8_event_start(struct perf_event *event, int flags)
+{
+	struct drm_i915_private *dev_priv =
+		container_of(event->pmu, typeof(*dev_priv), oa_pmu.pmu);
+	u32 report_format = dev_priv->oa_pmu.oa_buffer.format;
+	u32 tail;
+
+	/* Note: we don't rely on the hardware to perform single context
+	 * filtering and instead filter on the cpu based on the context-id
+	 * field of reports */
+	I915_WRITE(GEN8_OACONTROL, (report_format <<
+				    GEN8_OA_REPORT_FORMAT_SHIFT) |
+				   GEN8_OA_COUNTER_ENABLE);
+
+	/* Reset the head ptr so we don't forward reports from before now. */
+	tail = I915_READ(GEN8_OATAILPTR);
+	I915_WRITE(GEN8_OAHEADPTR, tail);
+}
+
 static void i915_oa_event_start(struct perf_event *event, int flags)
 {
 	struct drm_i915_private *dev_priv =
@@ -737,6 +1169,14 @@ static void gen7_event_stop(struct perf_event *event, int flags)
 		container_of(event->pmu, typeof(*dev_priv), oa_pmu.pmu);
 
 	I915_WRITE(GEN7_OACONTROL, 0);
+}
+
+static void gen8_event_stop(struct perf_event *event, int flags)
+{
+	struct drm_i915_private *dev_priv =
+		container_of(event->pmu, typeof(*dev_priv), oa_pmu.pmu);
+
+	I915_WRITE(GEN8_OACONTROL, 0);
 }
 
 static void i915_oa_event_stop(struct perf_event *event, int flags)
@@ -812,7 +1252,7 @@ void i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
 {
 	unsigned long flags;
 
-	if (dev_priv->oa_pmu.pmu.event_init == NULL ||
+	if (i915.enable_execlists ||
 	    dev_priv->oa_pmu.ops.update_specific_hw_ctx_id == NULL)
 		return;
 
@@ -828,6 +1268,42 @@ void i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
 
 	mmiowb();
 	spin_unlock_irqrestore(&dev_priv->oa_pmu.lock, flags);
+}
+
+static void gen8_legacy_ctx_switch_notify(struct drm_i915_gem_request *req)
+{
+	struct intel_engine_cs *ring = req->ring;
+	struct drm_i915_private *dev_priv = ring->dev->dev_private;
+	const struct i915_oa_reg *flex_regs = dev_priv->oa_pmu.flex_regs;
+	int n_flex_regs = dev_priv->oa_pmu.flex_regs_len;
+	int ret;
+	int i;
+
+	if (!atomic_read(&ring->oa_state_dirty))
+		return;
+
+	ret = intel_ring_begin(req, n_flex_regs * 2 + 4);
+	if (ret)
+		return;
+
+	intel_ring_emit(ring, MI_LOAD_REGISTER_IMM(n_flex_regs + 1));
+
+	intel_ring_emit(ring, GEN8_OACTXCONTROL);
+	intel_ring_emit(ring,
+			(dev_priv->oa_pmu.period_exponent <<
+			 GEN8_OA_TIMER_PERIOD_SHIFT) |
+			(dev_priv->oa_pmu.periodic ?
+			 GEN8_OA_TIMER_ENABLE : 0) |
+			GEN8_OA_COUNTER_RESUME);
+
+	for (i = 0; i < n_flex_regs; i++) {
+		intel_ring_emit(ring, flex_regs[i].addr);
+		intel_ring_emit(ring, flex_regs[i].value);
+	}
+	intel_ring_emit(ring, MI_NOOP);
+	intel_ring_advance(ring);
+
+	atomic_set(&ring->oa_state_dirty, false);
 }
 
 void i915_oa_legacy_ctx_switch_notify(struct drm_i915_gem_request *req)
@@ -847,6 +1323,46 @@ void i915_oa_legacy_ctx_switch_notify(struct drm_i915_gem_request *req)
 
 	mmiowb();
 	spin_unlock_irqrestore(&dev_priv->oa_pmu.lock, flags);
+}
+
+void i915_oa_update_reg_state(struct intel_engine_cs *ring, uint32_t *reg_state)
+{
+	struct drm_i915_private *dev_priv = ring->dev->dev_private;
+	const struct i915_oa_reg *flex_regs = dev_priv->oa_pmu.flex_regs;
+	int n_flex_regs = dev_priv->oa_pmu.flex_regs_len;
+	int ctx_oactxctrl = dev_priv->oa_pmu.ctx_oactxctrl_off;
+	int ctx_flexeu0 = dev_priv->oa_pmu.ctx_flexeu0_off;
+	int i;
+
+	if (!atomic_read(&ring->oa_state_dirty))
+		return;
+
+	reg_state[ctx_oactxctrl] = GEN8_OACTXCONTROL;
+	reg_state[ctx_oactxctrl+1] = (dev_priv->oa_pmu.period_exponent <<
+				      GEN8_OA_TIMER_PERIOD_SHIFT) |
+				     (dev_priv->oa_pmu.periodic ?
+				      GEN8_OA_TIMER_ENABLE : 0) |
+				     GEN8_OA_COUNTER_RESUME;
+
+	for (i = 0; i < n_flex_regs; i++) {
+		uint32_t offset = flex_regs[i].addr;
+
+		/* Map from mmio address to register state context
+		 * offset... */
+
+		offset -= EU_PERF_CNTL0;
+
+		offset >>= 5; /* Flex EU mmio registers are separated by 256
+			       * bytes, here they are separated by 8 */
+
+		/* EU_PERF_CNTL0 offset in register state context... */
+		offset += ctx_flexeu0;
+
+		reg_state[offset] = flex_regs[i].addr;
+		reg_state[offset+1] = flex_regs[i].value;
+	}
+
+	atomic_set(&ring->oa_state_dirty, false);
 }
 
 static struct ctl_table oa_table[] = {
@@ -893,7 +1409,9 @@ void i915_oa_pmu_register(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = to_i915(dev);
 
-	if (!(IS_HASWELL(dev)))
+	if (!(IS_HASWELL(dev) ||
+	      IS_BROADWELL(dev) || IS_CHERRYVIEW(dev) ||
+	      IS_SKYLAKE(dev)))
 		return;
 
 	dev_priv->oa_pmu.sysctl_header = register_sysctl_table(dev_root);
@@ -927,15 +1445,52 @@ void i915_oa_pmu_register(struct drm_device *dev)
 	dev_priv->oa_pmu.pmu.flush	= i915_oa_event_flush;
 	dev_priv->oa_pmu.pmu.event_idx	= i915_oa_event_event_idx;
 
-	dev_priv->oa_pmu.ops.init_oa_buffer = gen7_init_oa_buffer;
-	dev_priv->oa_pmu.ops.enable_metric_set = hsw_enable_metric_set;
-	dev_priv->oa_pmu.ops.disable_metric_set = hsw_disable_metric_set;
-	dev_priv->oa_pmu.ops.event_start = gen7_event_start;
-	dev_priv->oa_pmu.ops.event_stop = gen7_event_stop;
-	dev_priv->oa_pmu.ops.update_specific_hw_ctx_id = gen7_update_specific_hw_ctx_id;
-	dev_priv->oa_pmu.ops.flush_oa_snapshots = gen7_flush_oa_snapshots;
+	if (IS_HASWELL(dev)) {
+		dev_priv->oa_pmu.ops.init_oa_buffer = gen7_init_oa_buffer;
+		dev_priv->oa_pmu.ops.enable_metric_set = hsw_enable_metric_set;
+		dev_priv->oa_pmu.ops.disable_metric_set = hsw_disable_metric_set;
+		dev_priv->oa_pmu.ops.event_start = gen7_event_start;
+		dev_priv->oa_pmu.ops.event_stop = gen7_event_stop;
+		dev_priv->oa_pmu.ops.update_specific_hw_ctx_id = gen7_update_specific_hw_ctx_id;
+		dev_priv->oa_pmu.ops.flush_oa_snapshots = gen7_flush_oa_snapshots;
 
-	dev_priv->oa_pmu.oa_formats = hsw_oa_formats;
+		dev_priv->oa_pmu.oa_formats = hsw_oa_formats;
+	} else {
+		dev_priv->oa_pmu.ops.init_oa_buffer = gen8_init_oa_buffer;
+		dev_priv->oa_pmu.ops.event_start = gen8_event_start;
+		dev_priv->oa_pmu.ops.event_stop = gen8_event_stop;
+		dev_priv->oa_pmu.ops.flush_oa_snapshots = gen8_flush_oa_snapshots;
+
+		dev_priv->oa_pmu.oa_formats = gen8_plus_oa_formats;
+
+		if (!i915.enable_execlists) {
+			dev_priv->oa_pmu.ops.legacy_ctx_switch_notify =
+				gen8_legacy_ctx_switch_notify;
+		}
+
+		if (IS_BROADWELL(dev)) {
+			dev_priv->oa_pmu.ops.enable_metric_set =
+				bdw_enable_metric_set;
+			dev_priv->oa_pmu.ops.disable_metric_set =
+				bdw_disable_metric_set;
+			dev_priv->oa_pmu.ctx_oactxctrl_off = 0x120;
+			dev_priv->oa_pmu.ctx_flexeu0_off = 0x2ce;
+		} else if (IS_CHERRYVIEW(dev)) {
+			dev_priv->oa_pmu.ops.enable_metric_set =
+				chv_enable_metric_set;
+			dev_priv->oa_pmu.ops.disable_metric_set =
+				chv_disable_metric_set;
+			dev_priv->oa_pmu.ctx_oactxctrl_off = 0x120;
+			dev_priv->oa_pmu.ctx_flexeu0_off = 0x2ce;
+		} else if (IS_SKYLAKE(dev)) {
+			dev_priv->oa_pmu.ops.enable_metric_set =
+				skl_enable_metric_set;
+			dev_priv->oa_pmu.ops.disable_metric_set =
+				skl_disable_metric_set;
+			dev_priv->oa_pmu.ctx_oactxctrl_off = 0x128;
+			dev_priv->oa_pmu.ctx_flexeu0_off = 0x3de;
+		}
+	}
 
 	if (perf_pmu_register(&dev_priv->oa_pmu.pmu, "i915_oa", -1))
 		dev_priv->oa_pmu.pmu.event_init = NULL;
