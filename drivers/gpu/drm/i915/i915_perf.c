@@ -616,14 +616,12 @@ static void config_oa_regs(struct drm_i915_private *dev_priv,
 	}
 }
 
-static void hsw_enable_metric_set(struct drm_i915_private *dev_priv)
+static int hsw_enable_metric_set(struct drm_i915_private *dev_priv)
 {
-	dev_priv->perf.oa.mux_regs = NULL;
-	dev_priv->perf.oa.mux_regs_len = 0;
-	dev_priv->perf.oa.flex_regs = NULL;
-	dev_priv->perf.oa.flex_regs_len = 0;
-	dev_priv->perf.oa.b_counter_regs = NULL;
-	dev_priv->perf.oa.b_counter_regs_len = 0;
+	int ret = i915_oa_select_metric_set_hsw(dev_priv);
+
+	if (ret)
+		return ret;
 
 	I915_WRITE(GDT_CHICKEN_BITS, GT_NOA_ENABLE);
 
@@ -641,46 +639,12 @@ static void hsw_enable_metric_set(struct drm_i915_private *dev_priv)
 	I915_WRITE(GEN6_UCGCTL1, (I915_READ(GEN6_UCGCTL1) |
 				  GEN6_CSUNIT_CLOCK_GATE_DISABLE));
 
-	switch (dev_priv->perf.oa.metrics_set) {
-	case I915_OA_METRICS_SET_3D:
-		config_oa_regs(dev_priv, i915_oa_3d_mux_config_hsw,
-			       i915_oa_3d_mux_config_hsw_len);
-		config_oa_regs(dev_priv, i915_oa_3d_b_counter_config_hsw,
-			       i915_oa_3d_b_counter_config_hsw_len);
-		break;
-	case I915_OA_METRICS_SET_COMPUTE:
-		config_oa_regs(dev_priv, i915_oa_compute_mux_config_hsw,
-			       i915_oa_compute_mux_config_hsw_len);
-		config_oa_regs(dev_priv, i915_oa_compute_b_counter_config_hsw,
-			       i915_oa_compute_b_counter_config_hsw_len);
-		break;
-	case I915_OA_METRICS_SET_COMPUTE_EXTENDED:
-		config_oa_regs(dev_priv, i915_oa_compute_extended_mux_config_hsw,
-			       i915_oa_compute_extended_mux_config_hsw_len);
-		config_oa_regs(dev_priv, i915_oa_compute_extended_b_counter_config_hsw,
-			       i915_oa_compute_extended_b_counter_config_hsw_len);
-		break;
-	case I915_OA_METRICS_SET_MEMORY_READS:
-		config_oa_regs(dev_priv, i915_oa_memory_reads_mux_config_hsw,
-			       i915_oa_memory_reads_mux_config_hsw_len);
-		config_oa_regs(dev_priv, i915_oa_memory_reads_b_counter_config_hsw,
-			       i915_oa_memory_reads_b_counter_config_hsw_len);
-		break;
-	case I915_OA_METRICS_SET_MEMORY_WRITES:
-		config_oa_regs(dev_priv, i915_oa_memory_writes_mux_config_hsw,
-			       i915_oa_memory_writes_mux_config_hsw_len);
-		config_oa_regs(dev_priv, i915_oa_memory_writes_b_counter_config_hsw,
-			       i915_oa_memory_writes_b_counter_config_hsw_len);
-		break;
-	case I915_OA_METRICS_SET_SAMPLER_BALANCE:
-		config_oa_regs(dev_priv, i915_oa_sampler_balance_mux_config_hsw,
-			       i915_oa_sampler_balance_mux_config_hsw_len);
-		config_oa_regs(dev_priv, i915_oa_sampler_balance_b_counter_config_hsw,
-			       i915_oa_sampler_balance_b_counter_config_hsw_len);
-		break;
-	default:
-		BUG();
-	}
+	config_oa_regs(dev_priv, dev_priv->perf.oa.mux_regs,
+		       dev_priv->perf.oa.mux_regs_len);
+	config_oa_regs(dev_priv, dev_priv->perf.oa.b_counter_regs,
+		       dev_priv->perf.oa.b_counter_regs_len);
+
+	return 0;
 }
 
 static void hsw_disable_metric_set(struct drm_i915_private *dev_priv)
@@ -758,378 +722,12 @@ static int configure_all_contexts(struct drm_i915_private *dev_priv)
 	return 0;
 }
 
-static void bdw_enable_metric_set(struct drm_i915_private *dev_priv)
+static int bdw_enable_metric_set(struct drm_i915_private *dev_priv)
 {
-	dev_priv->perf.oa.mux_regs = NULL;
-	dev_priv->perf.oa.mux_regs_len = 0;
-	dev_priv->perf.oa.b_counter_regs = NULL;
-	dev_priv->perf.oa.b_counter_regs_len = 0;
-	dev_priv->perf.oa.flex_regs = NULL;
-	dev_priv->perf.oa.flex_regs_len = 0;
+	int ret = i915_oa_select_metric_set_bdw(dev_priv);
 
-	switch (dev_priv->perf.oa.metrics_set) {
-	case I915_OA_METRICS_SET_3D:
-		/* XXX: double check how VPG's availability check + prioritised
-		 * configs should be selected */
-#warning "XXX: it looks like we could fail both of the mux config conditions"
-		if (INTEL_INFO(dev_priv)->slice_mask & 0x1) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_3d_mux_config_1_0_slice_mask_0x01_bdw;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_3d_mux_config_1_0_slice_mask_0x01_bdw_len;
-		} else if (INTEL_INFO(dev_priv)->slice_mask & 0x2) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_3d_mux_config_1_1_slice_mask_0x02_bdw;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_3d_mux_config_1_1_slice_mask_0x02_bdw_len;
-		}
-
-		dev_priv->perf.oa.b_counter_regs =
-			i915_oa_3d_b_counter_config_bdw;
-		dev_priv->perf.oa.b_counter_regs_len =
-			i915_oa_3d_b_counter_config_bdw_len;
-
-		dev_priv->perf.oa.flex_regs = i915_oa_3d_flex_eu_config_bdw;
-		dev_priv->perf.oa.flex_regs_len = i915_oa_3d_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_COMPUTE:
-		if (INTEL_INFO(dev_priv)->slice_mask & 0x01) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_compute_mux_config_1_0_slice_mask_0x01_bdw;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_compute_mux_config_1_0_slice_mask_0x01_bdw_len;
-		} else if (INTEL_INFO(dev_priv)->slice_mask & 0x02) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_compute_mux_config_1_2_slice_mask_0x02_bdw;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_compute_mux_config_1_2_slice_mask_0x02_bdw_len;
-		}
-		dev_priv->perf.oa.b_counter_regs =
-			i915_oa_compute_b_counter_config_bdw;
-		dev_priv->perf.oa.b_counter_regs_len =
-			i915_oa_compute_b_counter_config_bdw_len;
-
-		dev_priv->perf.oa.flex_regs =
-			i915_oa_compute_flex_eu_config_bdw;
-		dev_priv->perf.oa.flex_regs_len =
-			i915_oa_compute_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_RENDER_PIPE_PROFILE:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_render_pipe_profile_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_render_pipe_profile_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_render_pipe_profile_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_render_pipe_profile_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_render_pipe_profile_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_render_pipe_profile_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_MEMORY_READS:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_memory_reads_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_memory_reads_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_memory_reads_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_memory_reads_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_memory_reads_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_memory_reads_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_MEMORY_WRITES:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_memory_writes_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_memory_writes_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_memory_writes_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_memory_writes_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_memory_writes_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_memory_writes_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_COMPUTE_EXTENDED:
-                if (INTEL_INFO(dev_priv)->subslice_mask & 0x01) {
-                        dev_priv->perf.oa.mux_regs =
-                                i915_oa_compute_extended_mux_config_1_0_subslice_mask_0x01_bdw;
-                        dev_priv->perf.oa.mux_regs_len =
-                                i915_oa_compute_extended_mux_config_1_0_subslice_mask_0x01_bdw_len;
-                } else if (INTEL_INFO(dev_priv)->subslice_mask & 0x08) {
-                        dev_priv->perf.oa.mux_regs =
-                                i915_oa_compute_extended_mux_config_1_1_subslice_mask_0x08_bdw;
-                        dev_priv->perf.oa.mux_regs_len =
-                                i915_oa_compute_extended_mux_config_1_1_subslice_mask_0x08_bdw_len;
-                } else if (INTEL_INFO(dev_priv)->subslice_mask & 0x02) {
-                        dev_priv->perf.oa.mux_regs =
-                                i915_oa_compute_extended_mux_config_1_2_subslice_mask_0x02_bdw;
-                        dev_priv->perf.oa.mux_regs_len =
-                                i915_oa_compute_extended_mux_config_1_2_subslice_mask_0x02_bdw_len;
-                } else if (INTEL_INFO(dev_priv)->subslice_mask & 0x10) {
-                        dev_priv->perf.oa.mux_regs =
-                                i915_oa_compute_extended_mux_config_1_3_subslice_mask_0x10_bdw;
-                        dev_priv->perf.oa.mux_regs_len =
-                                i915_oa_compute_extended_mux_config_1_3_subslice_mask_0x10_bdw_len;
-                } else if (INTEL_INFO(dev_priv)->subslice_mask & 0x04) {
-                        dev_priv->perf.oa.mux_regs =
-                                i915_oa_compute_extended_mux_config_1_4_subslice_mask_0x04_bdw;
-                        dev_priv->perf.oa.mux_regs_len =
-                                i915_oa_compute_extended_mux_config_1_4_subslice_mask_0x04_bdw_len;
-                } else if (INTEL_INFO(dev_priv)->subslice_mask & 0x20) {
-                        dev_priv->perf.oa.mux_regs =
-                                i915_oa_compute_extended_mux_config_1_5_subslice_mask_0x20_bdw;
-                        dev_priv->perf.oa.mux_regs_len =
-                                i915_oa_compute_extended_mux_config_1_5_subslice_mask_0x20_bdw_len;
-                }
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_compute_extended_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_compute_extended_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_compute_extended_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_compute_extended_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_compute_extended_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_compute_extended_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_COMPUTE_L3_CACHE:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_compute_l3_cache_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_compute_l3_cache_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_compute_l3_cache_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_compute_l3_cache_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_compute_l3_cache_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_compute_l3_cache_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_DATA_PORT_READS_COALESCING:
-#warning "BDW: DATA_PORT_READS_COALESCING: what if the subslice_mask & 0x1 test fails?"
-                if (INTEL_INFO(dev_priv)->subslice_mask & 0x01) {
-                        dev_priv->perf.oa.mux_regs =
-                                i915_oa_data_port_reads_coalescing_mux_config_1_0_subslice_mask_0x01_bdw;
-                        dev_priv->perf.oa.mux_regs_len =
-                                i915_oa_data_port_reads_coalescing_mux_config_1_0_subslice_mask_0x01_bdw_len;
-                } else
-			DRM_DEBUG_DRIVER("undefined MUX config for DATA_PORT_READS_COALESCING");
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_data_port_reads_coalescing_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_data_port_reads_coalescing_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_data_port_reads_coalescing_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_data_port_reads_coalescing_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_DATA_PORT_WRITES_COALESCING:
-                if (INTEL_INFO(dev_priv)->subslice_mask & 0x01) {
-                        dev_priv->perf.oa.mux_regs =
-                                i915_oa_data_port_writes_coalescing_mux_config_1_0_subslice_mask_0x01_bdw;
-                        dev_priv->perf.oa.mux_regs_len =
-                                i915_oa_data_port_writes_coalescing_mux_config_1_0_subslice_mask_0x01_bdw_len;
-                } else
-			DRM_DEBUG_DRIVER("undefined MUX config for DATA_PORT_WRITES_COALESCING");
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_data_port_writes_coalescing_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_data_port_writes_coalescing_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_data_port_writes_coalescing_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_data_port_writes_coalescing_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_L3_1:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_l3_1_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_l3_1_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_l3_1_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_l3_1_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_l3_1_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_l3_1_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_L3_2:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_l3_2_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_l3_2_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_l3_2_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_l3_2_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_l3_2_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_l3_2_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_L3_3:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_l3_3_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_l3_3_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_l3_3_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_l3_3_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_l3_3_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_l3_3_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_L3_4:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_l3_4_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_l3_4_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_l3_4_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_l3_4_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_l3_4_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_l3_4_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_RASTERIZER_AND_PIXEL_BACKEND:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_rasterizer_and_pixel_backend_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_rasterizer_and_pixel_backend_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_rasterizer_and_pixel_backend_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_rasterizer_and_pixel_backend_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_rasterizer_and_pixel_backend_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_rasterizer_and_pixel_backend_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_SAMPLER_1:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_sampler_1_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_sampler_1_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_sampler_1_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_sampler_1_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_sampler_1_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_sampler_1_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_SAMPLER_2:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_sampler_2_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_sampler_2_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_sampler_2_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_sampler_2_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_sampler_2_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_sampler_2_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_TDL_1:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_tdl_1_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_tdl_1_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_tdl_1_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_tdl_1_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_tdl_1_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_tdl_1_flex_eu_config_bdw_len;
-		break;
-
-	case I915_OA_METRICS_SET_TDL_2:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_tdl_2_mux_config_bdw;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_tdl_2_mux_config_bdw_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_tdl_2_b_counter_config_bdw;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_tdl_2_b_counter_config_bdw_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_tdl_2_flex_eu_config_bdw;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_tdl_2_flex_eu_config_bdw_len;
-		break;
-
-	default:
-		BUG(); /* should have been validated in _init */
-		return;
-	}
+	if (ret)
+		return ret;
 
 	I915_WRITE(GDT_CHICKEN_BITS, 0xA0);
 	config_oa_regs(dev_priv, dev_priv->perf.oa.mux_regs,
@@ -1139,6 +737,8 @@ static void bdw_enable_metric_set(struct drm_i915_private *dev_priv)
 		       dev_priv->perf.oa.b_counter_regs_len);
 
 	configure_all_contexts(dev_priv);
+
+	return 0;
 }
 
 static void bdw_disable_metric_set(struct drm_i915_private *dev_priv)
@@ -1150,237 +750,12 @@ static void bdw_disable_metric_set(struct drm_i915_private *dev_priv)
 #warning "BDW: Do we need to write to CHICKEN2 to disable DOP clock gating when idle? (vpg does this)"
 }
 
-static void chv_enable_metric_set(struct drm_i915_private *dev_priv)
+static int chv_enable_metric_set(struct drm_i915_private *dev_priv)
 {
-	dev_priv->perf.oa.mux_regs = NULL;
-	dev_priv->perf.oa.mux_regs_len = 0;
-	dev_priv->perf.oa.flex_regs = NULL;
-	dev_priv->perf.oa.flex_regs_len = 0;
-	dev_priv->perf.oa.b_counter_regs = NULL;
-	dev_priv->perf.oa.b_counter_regs_len = 0;
+	int ret = i915_oa_select_metric_set_chv(dev_priv);
 
-	switch (dev_priv->perf.oa.metrics_set) {
-	case I915_OA_METRICS_SET_3D:
-		dev_priv->perf.oa.mux_regs = i915_oa_3d_mux_config_chv;
-		dev_priv->perf.oa.mux_regs_len = i915_oa_3d_mux_config_chv_len;
-
-		dev_priv->perf.oa.b_counter_regs =
-			i915_oa_3d_b_counter_config_chv;
-		dev_priv->perf.oa.b_counter_regs_len =
-			i915_oa_3d_b_counter_config_chv_len;
-
-		dev_priv->perf.oa.flex_regs = i915_oa_3d_flex_eu_config_chv;
-		dev_priv->perf.oa.flex_regs_len = i915_oa_3d_flex_eu_config_chv_len;
-		break;
-
-	case I915_OA_METRICS_SET_COMPUTE:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_compute_mux_config_chv;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_compute_mux_config_chv_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_compute_b_counter_config_chv;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_compute_b_counter_config_chv_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_compute_flex_eu_config_chv;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_compute_flex_eu_config_chv_len;
-		break;
-
-	case I915_OA_METRICS_SET_RENDER_PIPE_PROFILE:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_render_pipe_profile_mux_config_chv;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_render_pipe_profile_mux_config_chv_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_render_pipe_profile_b_counter_config_chv;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_render_pipe_profile_b_counter_config_chv_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_render_pipe_profile_flex_eu_config_chv;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_render_pipe_profile_flex_eu_config_chv_len;
-		break;
-
-	case I915_OA_METRICS_SET_HDC_AND_SF:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_hdc_and_sf_mux_config_chv;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_hdc_and_sf_mux_config_chv_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_hdc_and_sf_b_counter_config_chv;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_hdc_and_sf_b_counter_config_chv_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_hdc_and_sf_flex_eu_config_chv;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_hdc_and_sf_flex_eu_config_chv_len;
-		break;
-
-	case I915_OA_METRICS_SET_L3_1:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_l3_1_mux_config_chv;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_l3_1_mux_config_chv_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_l3_1_b_counter_config_chv;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_l3_1_b_counter_config_chv_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_l3_1_flex_eu_config_chv;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_l3_1_flex_eu_config_chv_len;
-		break;
-
-	case I915_OA_METRICS_SET_L3_2:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_l3_2_mux_config_chv;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_l3_2_mux_config_chv_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_l3_2_b_counter_config_chv;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_l3_2_b_counter_config_chv_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_l3_2_flex_eu_config_chv;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_l3_2_flex_eu_config_chv_len;
-		break;
-
-	case I915_OA_METRICS_SET_L3_3:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_l3_3_mux_config_chv;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_l3_3_mux_config_chv_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_l3_3_b_counter_config_chv;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_l3_3_b_counter_config_chv_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_l3_3_flex_eu_config_chv;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_l3_3_flex_eu_config_chv_len;
-		break;
-
-	case I915_OA_METRICS_SET_L3_4:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_l3_4_mux_config_chv;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_l3_4_mux_config_chv_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_l3_4_b_counter_config_chv;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_l3_4_b_counter_config_chv_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_l3_4_flex_eu_config_chv;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_l3_4_flex_eu_config_chv_len;
-		break;
-
-	case I915_OA_METRICS_SET_RASTERIZER_AND_PIXEL_BACKEND:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_rasterizer_and_pixel_backend_mux_config_chv;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_rasterizer_and_pixel_backend_mux_config_chv_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_rasterizer_and_pixel_backend_b_counter_config_chv;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_rasterizer_and_pixel_backend_b_counter_config_chv_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_rasterizer_and_pixel_backend_flex_eu_config_chv;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_rasterizer_and_pixel_backend_flex_eu_config_chv_len;
-		break;
-
-	case I915_OA_METRICS_SET_SAMPLER_1:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_sampler_1_mux_config_chv;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_sampler_1_mux_config_chv_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_sampler_1_b_counter_config_chv;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_sampler_1_b_counter_config_chv_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_sampler_1_flex_eu_config_chv;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_sampler_1_flex_eu_config_chv_len;
-		break;
-
-	case I915_OA_METRICS_SET_SAMPLER_2:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_sampler_2_mux_config_chv;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_sampler_2_mux_config_chv_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_sampler_2_b_counter_config_chv;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_sampler_2_b_counter_config_chv_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_sampler_2_flex_eu_config_chv;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_sampler_2_flex_eu_config_chv_len;
-		break;
-
-	case I915_OA_METRICS_SET_TDL_1:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_tdl_1_mux_config_chv;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_tdl_1_mux_config_chv_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_tdl_1_b_counter_config_chv;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_tdl_1_b_counter_config_chv_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_tdl_1_flex_eu_config_chv;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_tdl_1_flex_eu_config_chv_len;
-		break;
-
-	case I915_OA_METRICS_SET_TDL_2:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_tdl_2_mux_config_chv;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_tdl_2_mux_config_chv_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_tdl_2_b_counter_config_chv;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_tdl_2_b_counter_config_chv_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_tdl_2_flex_eu_config_chv;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_tdl_2_flex_eu_config_chv_len;
-		break;
-
-	default:
-		BUG(); /* should have been validated in _init */
-		return;
-	}
+	if (ret)
+		return ret;
 
 	I915_WRITE(GDT_CHICKEN_BITS, 0xA0);
 	config_oa_regs(dev_priv, dev_priv->perf.oa.mux_regs,
@@ -1390,6 +765,8 @@ static void chv_enable_metric_set(struct drm_i915_private *dev_priv)
 		       dev_priv->perf.oa.b_counter_regs_len);
 
 	configure_all_contexts(dev_priv);
+
+	return 0;
 }
 
 static void chv_disable_metric_set(struct drm_i915_private *dev_priv)
@@ -1401,356 +778,12 @@ static void chv_disable_metric_set(struct drm_i915_private *dev_priv)
 #warning "CHV: Do we need to write to CHICKEN2 to disable DOP clock gating when idle? (vpg does this)"
 }
 
-static void skl_enable_metric_set(struct drm_i915_private *dev_priv)
+static int skl_enable_metric_set(struct drm_i915_private *dev_priv)
 {
-	dev_priv->perf.oa.mux_regs = NULL;
-	dev_priv->perf.oa.mux_regs_len = 0;
-	dev_priv->perf.oa.b_counter_regs = NULL;
-	dev_priv->perf.oa.b_counter_regs_len = 0;
-	dev_priv->perf.oa.flex_regs = NULL;
-	dev_priv->perf.oa.flex_regs_len = 0;
+	int ret = i915_oa_select_metric_set_skl(dev_priv);
 
-	switch (dev_priv->perf.oa.metrics_set) {
-	case I915_OA_METRICS_SET_3D:
-		if (dev_priv->dev->pdev->revision < 2) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_3d_mux_config_1_1_sku_lt_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_3d_mux_config_1_1_sku_lt_0x02_skl_len;
-		} else {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_3d_mux_config_1_1_sku_gte_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_3d_mux_config_1_1_sku_gte_0x02_skl_len;
-		}
-
-		dev_priv->perf.oa.b_counter_regs =
-			i915_oa_3d_b_counter_config_skl;
-		dev_priv->perf.oa.b_counter_regs_len =
-			i915_oa_3d_b_counter_config_skl_len;
-
-		dev_priv->perf.oa.flex_regs = i915_oa_3d_flex_eu_config_skl;
-		dev_priv->perf.oa.flex_regs_len = i915_oa_3d_flex_eu_config_skl_len;
-		break;
-
-	case I915_OA_METRICS_SET_COMPUTE:
-                if (INTEL_INFO(dev_priv)->slice_mask & 0x01 &&
-		    dev_priv->dev->pdev->revision < 2) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_compute_mux_config_1_0_slice_mask_0x01_sku_lt_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_compute_mux_config_1_0_slice_mask_0x01_sku_lt_0x02_skl_len;
-                } else if (INTEL_INFO(dev_priv)->slice_mask & 0x01 &&
-			   dev_priv->dev->pdev->revision >= 2) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_compute_mux_config_1_0_slice_mask_0x01_sku_gte_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_compute_mux_config_1_0_slice_mask_0x01_sku_gte_0x02_skl_len;
-                } else if (INTEL_INFO(dev_priv)->slice_mask & 0x02 &&
-			   dev_priv->dev->pdev->revision < 2) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_compute_mux_config_1_2_slice_mask_0x02_sku_lt_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_compute_mux_config_1_2_slice_mask_0x02_sku_lt_0x02_skl_len;
-                }
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_compute_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_compute_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_compute_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_compute_flex_eu_config_skl_len;
-
-		break;
-
-	case I915_OA_METRICS_SET_RENDER_PIPE_PROFILE:
-                if (dev_priv->dev->pdev->revision < 2) {
-                        dev_priv->perf.oa.mux_regs =
-                                i915_oa_render_pipe_profile_mux_config_1_0_sku_lt_0x02_skl;
-                        dev_priv->perf.oa.mux_regs_len =
-                                i915_oa_render_pipe_profile_mux_config_1_0_sku_lt_0x02_skl_len;
-                } else {
-                        dev_priv->perf.oa.mux_regs =
-                                i915_oa_render_pipe_profile_mux_config_1_0_sku_gte_0x02_skl;
-                        dev_priv->perf.oa.mux_regs_len =
-                                i915_oa_render_pipe_profile_mux_config_1_0_sku_gte_0x02_skl_len;
-                }
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_render_pipe_profile_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_render_pipe_profile_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_render_pipe_profile_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_render_pipe_profile_flex_eu_config_skl_len;
-
-		break;
-
-	case I915_OA_METRICS_SET_MEMORY_READS:
-                if (INTEL_INFO(dev_priv)->slice_mask & 0x01 &&
-		    dev_priv->dev->pdev->revision < 2) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_memory_reads_mux_config_1_0_slice_mask_0x01_sku_lt_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_memory_reads_mux_config_1_0_slice_mask_0x01_sku_lt_0x02_skl_len;
-                } else if (INTEL_INFO(dev_priv)->slice_mask & 0x01 &&
-			   dev_priv->dev->pdev->revision >= 2) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_memory_reads_mux_config_1_0_slice_mask_0x01_sku_gte_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_memory_reads_mux_config_1_0_slice_mask_0x01_sku_gte_0x02_skl_len;
-                }
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_memory_reads_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_memory_reads_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_memory_reads_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_memory_reads_flex_eu_config_skl_len;
-
-		break;
-
-	case I915_OA_METRICS_SET_MEMORY_WRITES:
-                if (INTEL_INFO(dev_priv)->slice_mask & 0x01 &&
-		    dev_priv->dev->pdev->revision < 0x02) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_memory_writes_mux_config_1_0_slice_mask_0x01_sku_lt_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_memory_writes_mux_config_1_0_slice_mask_0x01_sku_lt_0x02_skl_len;
-                } else if (INTEL_INFO(dev_priv)->slice_mask & 0x01 &&
-			   dev_priv->dev->pdev->revision >= 0x02) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_memory_writes_mux_config_1_0_slice_mask_0x01_sku_gte_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_memory_writes_mux_config_1_0_slice_mask_0x01_sku_gte_0x02_skl_len;
-                }
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_memory_writes_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_memory_writes_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_memory_writes_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_memory_writes_flex_eu_config_skl_len;
-		break;
-
-	case I915_OA_METRICS_SET_COMPUTE_EXTENDED:
-                if (INTEL_INFO(dev_priv)->subslice_mask & 0x1 &&
-		    dev_priv->dev->pdev->revision < 2) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_compute_extended_mux_config_1_0_subslice_mask_0x01_sku_lt_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_compute_extended_mux_config_1_0_subslice_mask_0x01_sku_lt_0x02_skl_len;
-                } else if (INTEL_INFO(dev_priv)->subslice_mask & 0x08 &&
-			   dev_priv->dev->pdev->revision < 0x02) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_compute_extended_mux_config_1_1_subslice_mask_0x08_sku_lt_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_compute_extended_mux_config_1_1_subslice_mask_0x08_sku_lt_0x02_skl_len;
-                } else if (INTEL_INFO(dev_priv)->subslice_mask & 0x02 &&
-			   dev_priv->dev->pdev->revision < 2) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_compute_extended_mux_config_1_2_subslice_mask_0x02_sku_lt_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_compute_extended_mux_config_1_2_subslice_mask_0x02_sku_lt_0x02_skl_len;
-                } else if (INTEL_INFO(dev_priv)->subslice_mask & 0x10 &&
-			   dev_priv->dev->pdev->revision < 2) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_compute_extended_mux_config_1_3_subslice_mask_0x10_sku_lt_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_compute_extended_mux_config_1_3_subslice_mask_0x10_sku_lt_0x02_skl_len;
-                } else if (INTEL_INFO(dev_priv)->subslice_mask & 0x04 &&
-			   dev_priv->dev->pdev->revision < 2) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_compute_extended_mux_config_1_4_subslice_mask_0x04_sku_lt_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_compute_extended_mux_config_1_4_subslice_mask_0x04_sku_lt_0x02_skl_len;
-                } else if (INTEL_INFO(dev_priv)->subslice_mask & 0x20 &&
-			   dev_priv->dev->pdev->revision < 2) {
-			dev_priv->perf.oa.mux_regs =
-				i915_oa_compute_extended_mux_config_1_5_subslice_mask_0x20_sku_lt_0x02_skl;
-			dev_priv->perf.oa.mux_regs_len =
-				i915_oa_compute_extended_mux_config_1_5_subslice_mask_0x20_sku_lt_0x02_skl_len;
-                }
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_compute_extended_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_compute_extended_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_compute_extended_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_compute_extended_flex_eu_config_skl_len;
-		break;
-
-	case I915_OA_METRICS_SET_COMPUTE_L3_CACHE:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_compute_l3_cache_mux_config_skl;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_compute_l3_cache_mux_config_skl_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_compute_l3_cache_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_compute_l3_cache_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_compute_l3_cache_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_compute_l3_cache_flex_eu_config_skl_len;
-		break;
-
-	case I915_OA_METRICS_SET_HDC_AND_SF:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_hdc_and_sf_mux_config_skl;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_hdc_and_sf_mux_config_skl_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_hdc_and_sf_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_hdc_and_sf_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_hdc_and_sf_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_hdc_and_sf_flex_eu_config_skl_len;
-		break;
-
-	case I915_OA_METRICS_SET_L3_1:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_l3_1_mux_config_skl;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_l3_1_mux_config_skl_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_l3_1_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_l3_1_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_l3_1_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_l3_1_flex_eu_config_skl_len;
-		break;
-
-	case I915_OA_METRICS_SET_L3_2:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_l3_2_mux_config_skl;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_l3_2_mux_config_skl_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_l3_2_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_l3_2_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_l3_2_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_l3_2_flex_eu_config_skl_len;
-		break;
-
-	case I915_OA_METRICS_SET_L3_3:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_l3_3_mux_config_skl;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_l3_3_mux_config_skl_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_l3_3_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_l3_3_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_l3_3_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_l3_3_flex_eu_config_skl_len;
-		break;
-
-	case I915_OA_METRICS_SET_RASTERIZER_AND_PIXEL_BACKEND:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_rasterizer_and_pixel_backend_mux_config_skl;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_rasterizer_and_pixel_backend_mux_config_skl_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_rasterizer_and_pixel_backend_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_rasterizer_and_pixel_backend_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_rasterizer_and_pixel_backend_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_rasterizer_and_pixel_backend_flex_eu_config_skl_len;
-		break;
-
-	case I915_OA_METRICS_SET_SAMPLER:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_sampler_mux_config_skl;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_sampler_mux_config_skl_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_sampler_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_sampler_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_sampler_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_sampler_flex_eu_config_skl_len;
-		break;
-
-	case I915_OA_METRICS_SET_TDL_1:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_tdl_1_mux_config_skl;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_tdl_1_mux_config_skl_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_tdl_1_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_tdl_1_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_tdl_1_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_tdl_1_flex_eu_config_skl_len;
-		break;
-
-	case I915_OA_METRICS_SET_TDL_2:
-                dev_priv->perf.oa.mux_regs =
-                        i915_oa_tdl_2_mux_config_skl;
-                dev_priv->perf.oa.mux_regs_len =
-                        i915_oa_tdl_2_mux_config_skl_len;
-
-                dev_priv->perf.oa.b_counter_regs =
-                        i915_oa_tdl_2_b_counter_config_skl;
-                dev_priv->perf.oa.b_counter_regs_len =
-                        i915_oa_tdl_2_b_counter_config_skl_len;
-
-                dev_priv->perf.oa.flex_regs =
-                        i915_oa_tdl_2_flex_eu_config_skl;
-                dev_priv->perf.oa.flex_regs_len =
-                        i915_oa_tdl_2_flex_eu_config_skl_len;
-		break;
-
-	default:
-		BUG(); /* should have been validated in _init */
-		return;
-	}
+	if (ret)
+		return ret;
 
 	I915_WRITE(GDT_CHICKEN_BITS, 0xA0);
 	config_oa_regs(dev_priv, dev_priv->perf.oa.mux_regs,
@@ -1760,6 +793,8 @@ static void skl_enable_metric_set(struct drm_i915_private *dev_priv)
 		       dev_priv->perf.oa.b_counter_regs_len);
 
 	configure_all_contexts(dev_priv);
+
+	return 0;
 }
 
 static void skl_disable_metric_set(struct drm_i915_private *dev_priv)
@@ -1922,22 +957,10 @@ static int i915_oa_event_init(struct i915_perf_event *event,
 	dev_priv->perf.oa.oa_buffer.format =
 		dev_priv->perf.oa.oa_formats[oa_attr.oa_format].format;
 
-	if (IS_HASWELL(dev_priv->dev)) {
-		if (oa_attr.metrics_set <= 0 ||
-		    oa_attr.metrics_set > I915_OA_METRICS_SET_MAX) {
-			DRM_ERROR("Metric set not available\n");
-			return -EINVAL;
-		}
-	} else if (IS_BROADWELL(dev_priv->dev) ||
-		   IS_CHERRYVIEW(dev_priv->dev) ||
-		   IS_SKYLAKE(dev_priv->dev)) {
-		if (oa_attr.metrics_set != I915_OA_METRICS_SET_3D) {
-			DRM_ERROR("Metric set not available\n");
-			return -EINVAL;
-		}
-	} else {
-		BUG(); /* checked above */
-		return -ENODEV;
+	if (oa_attr.metrics_set <= 0 ||
+	    oa_attr.metrics_set > I915_OA_METRICS_SET_MAX) {
+		DRM_ERROR("Unknown Metric Set ID\n");
+		return -EINVAL;
 	}
 
 	dev_priv->perf.oa.metrics_set = oa_attr.metrics_set;
@@ -1991,7 +1014,9 @@ static int i915_oa_event_init(struct i915_perf_event *event,
 	intel_runtime_pm_get(dev_priv);
 	intel_uncore_forcewake_get(dev_priv, FORCEWAKE_ALL);
 
-	dev_priv->perf.oa.ops.enable_metric_set(dev_priv);
+	ret = dev_priv->perf.oa.ops.enable_metric_set(dev_priv);
+	if (ret)
+		goto err_config;
 
 	event->destroy = i915_oa_event_destroy;
 	event->enable = i915_oa_event_enable;
@@ -2002,6 +1027,16 @@ static int i915_oa_event_init(struct i915_perf_event *event,
 	event->read = i915_oa_read;
 
 	return 0;
+
+err_config:
+	intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
+	intel_runtime_pm_put(dev_priv);
+
+	free_oa_buffer(dev_priv);
+
+	dev_priv->perf.oa.exclusive_event = NULL;
+
+	return ret;
 }
 
 static void gen7_update_specific_hw_ctx_id(struct drm_i915_private *dev_priv,
