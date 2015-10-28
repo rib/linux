@@ -52,6 +52,14 @@ static u32 i915_perf_event_paranoid = true;
 #define GEN8_OAREPORT_REASON_GO_TRANSITION  (1<<23)
 #define GEN9_OAREPORT_REASON_CLK_RATIO      (1<<24)
 
+/* Data common to periodic and RCS based samples */
+struct oa_sample_data
+{
+	u32 source;
+	u32 ctx_id;
+	const u8 *report;
+};
+
 /* for sysctl proc_dointvec_minmax of i915_oa_event_min_timer_exponent */
 static int zero;
 static int oa_exponent_max = OA_EXPONENT_MAX;
@@ -349,7 +357,7 @@ static bool append_oa_status(struct i915_perf_event *event,
 
 static bool append_oa_sample(struct i915_perf_event *event,
 			     struct i915_perf_read_state *read_state,
-			     const u8 *report)
+			     struct oa_sample_data *data)
 {
 	struct drm_i915_private *dev_priv = event->dev_priv;
 	int report_size = dev_priv->perf.oa.oa_buffer.format_size;
@@ -381,6 +389,37 @@ static bool append_oa_sample(struct i915_perf_event *event,
 	read_state->buf += sizeof(header);
 
 	if (sample_flags & I915_PERF_SAMPLE_SOURCE_INFO) {
+		if (copy_to_user(read_state->buf, &data->source, 4))
+			return false;
+		read_state->buf += 4;
+	}
+
+	if (sample_flags & I915_PERF_SAMPLE_CTXID) {
+		if (copy_to_user(read_state->buf, &data->ctx_id, 4))
+			return false;
+		read_state->buf += 4;
+	}
+
+	if (sample_flags & I915_PERF_SAMPLE_OA_REPORT) {
+		copy_to_user(read_state->buf, data->report, report_size);
+		read_state->buf += report_size;
+	}
+
+
+	read_state->read += header.size;
+
+	return true;
+}
+
+static bool append_oa_buffer_sample(struct i915_perf_event *event,
+				    struct i915_perf_read_state *read_state,
+				    const u8 *report)
+{
+	struct drm_i915_private *dev_priv = event->dev_priv;
+	u32 sample_flags = event->sample_flags;
+	struct oa_sample_data data = { 0 };
+
+	if (sample_flags & I915_PERF_SAMPLE_SOURCE_INFO) {
 		enum drm_i915_perf_oa_event_source source;
 
 		if (INTEL_INFO(dev_priv)->gen >= 8) {
@@ -395,26 +434,17 @@ static bool append_oa_sample(struct i915_perf_event *event,
 		} else
 			source = I915_PERF_OA_EVENT_SOURCE_PERIODIC;
 
-		if (copy_to_user(read_state->buf, &source, 4))
-			return false;
-		read_state->buf += 4;
+		data.source = source;
 	}
 
-	if (sample_flags & I915_PERF_SAMPLE_CTXID) {
-		u32 dummy_ctx_id = 0;
+#warning "FIXME: append_oa_buffer_sample: read ctx ID from report and map that to an intel_context::global_id"
+	if (sample_flags & I915_PERF_SAMPLE_CTXID)
+		data.ctx_id = 0;
 
-		if (copy_to_user(read_state->buf, &dummy_ctx_id, 4))
-			return false;
-		read_state->buf += 4;
-	}
+	if (sample_flags & I915_PERF_SAMPLE_OA_REPORT)
+		data.report = report;
 
-	if (sample_flags & I915_PERF_SAMPLE_OA_REPORT) {
-		copy_to_user(read_state->buf, report, report_size);
-		read_state->buf += report_size;
-	}
-
-
-	read_state->read += header.size;
+	append_oa_sample(event, read_state, &data);
 
 	return true;
 }
@@ -482,13 +512,14 @@ static u32 gen8_append_oa_reports(struct i915_perf_event *event,
 			     (dev_priv->perf.oa.specific_ctx_id !=
 			      dev_priv->perf.oa.oa_buffer.last_ctx_id))) {
 
-				if (!append_oa_sample(event, read_state, report))
+				if (!append_oa_buffer_sample(event, read_state,
+							     report))
 					break;
 			}
 		}
 
-		/* If append_oa_sample() returns false we shouldn't progress
-		 * head so we update it afterwards... */
+		/* If append_oa_buffer_sample() returns false we shouldn't
+		 * progress head so we update it afterwards... */
 		dev_priv->perf.oa.oa_buffer.last_ctx_id = ctx_id;
 		head += report_size;
 	}
@@ -566,12 +597,12 @@ static u32 gen7_append_oa_reports(struct i915_perf_event *event,
 			break;
 
 		if (dev_priv->perf.oa.exclusive_event->enabled) {
-			if (!append_oa_sample(event, read_state, report))
+			if (!append_oa_buffer_sample(event, read_state, report))
 				break;
 		}
 
-		/* If append_oa_sample() returns false we shouldn't progress
-		 * head so we update it afterwards... */
+		/* If append_oa_buffer_sample() returns false we shouldn't
+		 * progress head so we update it afterwards... */
 		head += report_size;
 	}
 
@@ -620,14 +651,13 @@ static void gen7_oa_read(struct i915_perf_event *event,
 }
 
 static bool append_oa_rcs_sample(struct i915_perf_event *event,
-			     struct i915_perf_read_state *read_state,
-			     struct i915_oa_rcs_node *node)
+				 struct i915_perf_read_state *read_state,
+				 struct i915_oa_rcs_node *node)
 {
 	struct drm_i915_private *dev_priv = event->dev_priv;
-	int report_size = dev_priv->perf.oa.oa_rcs_buffer.format_size;
-	struct drm_i915_perf_event_header header;
 	u32 sample_flags = event->sample_flags;
-	u8 *report = dev_priv->perf.oa.oa_rcs_buffer.addr + node->offset;
+	struct oa_sample_data data = { 0 };
+	const u8 *report = dev_priv->perf.oa.oa_rcs_buffer.addr + node->offset;
 	u32 report_ts;
 
 	/*
@@ -638,51 +668,16 @@ static bool append_oa_rcs_sample(struct i915_perf_event *event,
 	report_ts = *(u32 *)(report + 4);
 	dev_priv->perf.oa.ops.read(event, read_state, report_ts);
 
-	header.type = DRM_I915_PERF_RECORD_SAMPLE;
-	header.misc = 0;
-	header.size = sizeof(header);
-
-	/* XXX: could pre-compute this when opening the event... */
-
 	if (sample_flags & I915_PERF_SAMPLE_SOURCE_INFO)
-		header.size += 4;
+		data.source = I915_PERF_OA_EVENT_SOURCE_RCS;
 
 	if (sample_flags & I915_PERF_SAMPLE_CTXID)
-		header.size += 4;
+		data.ctx_id = node->ctx_id;
 
 	if (sample_flags & I915_PERF_SAMPLE_OA_REPORT)
-		header.size += report_size;
+		data.report = report;
 
-	if ((read_state->count - read_state->read) < header.size)
-		return false;
-
-	if (copy_to_user(read_state->buf, &header, sizeof(header)))
-		return false;
-
-	read_state->buf += sizeof(header);
-
-	if (sample_flags & I915_PERF_SAMPLE_SOURCE_INFO) {
-		enum drm_i915_perf_oa_event_source event_source =
-			I915_PERF_OA_EVENT_SOURCE_RCS;
-
-		if (copy_to_user(read_state->buf, &event_source, 4))
-			return false;
-		read_state->buf += 4;
-	}
-
-	if (sample_flags & I915_PERF_SAMPLE_CTXID) {
-		if (copy_to_user(read_state->buf, &node->ctx_id, 4))
-			return false;
-		read_state->buf += 4;
-	}
-
-	if (sample_flags & I915_PERF_SAMPLE_OA_REPORT) {
-		if (copy_to_user(read_state->buf, report, report_size))
-			return false;
-		read_state->buf += report_size;
-	}
-
-	read_state->read += header.size;
+	append_oa_sample(event, read_state, &data);
 
 	return true;
 }
