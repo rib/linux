@@ -1173,19 +1173,29 @@ struct drm_i915_gem_context_param {
 };
 
 enum drm_i915_perf_event_type {
-	I915_PERF_OA_EVENT = 1,
+	I915_PERF_RING_EVENT = 1,
 
 	I915_PERF_EVENT_TYPE_MAX	/* non-ABI */
 };
 
 
-#define I915_OA_FLAG_PERIODIC		(1<<0)
+#define I915_PERF_RING_FLAG_OA_ENABLE	(1<<0)
+#define I915_PERF_RING_FLAG_OA_PERIODIC	(1<<1)
 
-struct drm_i915_perf_oa_attr {
+enum drm_i915_ring {
+	I915_RING_RENDER,
+	I915_RING_BSD,
+	I915_RING_BLT,
+	I915_RING_VEBOX,
+};
+
+struct drm_i915_perf_ring_attr {
 	__u32 size;
 
 	__u32 flags;
+	__u32 ring;
 
+	/* I915_PERF_SAMPLE_OA_REPORT attributes... */
 	__u32 metrics_set;
 	__u32 oa_format;
 	__u32 oa_timer_exponent;
@@ -1198,7 +1208,7 @@ struct drm_i915_perf_oa_attr {
  * gives a larger structure than the kernel expects then
  * kernel asserts that all unknown fields are zero.
  */
-#define I915_OA_ATTR_SIZE_VER0		20 /* sizeof first published struct */
+#define I915_RING_ATTR_SIZE_VER0	20 /* sizeof first published struct */
 
 
 
@@ -1210,7 +1220,7 @@ struct drm_i915_perf_oa_attr {
 #define I915_PERF_SAMPLE_OA_REPORT	(1<<0)
 
 struct drm_i915_perf_open_param {
-	/* Such as I915_PERF_OA_EVENT */
+	/* Such as I915_PERF_RING_EVENT */
 	__u32 type;
 
 	/* CLOEXEC, NONBLOCK, SINGLE_CONTEXT, PERIODIC... */

@@ -427,14 +427,14 @@ static void gen7_oa_read(struct i915_perf_event *event,
 				    OA_MEM_SELECT_GGTT);
 }
 
-static bool i915_oa_can_read(struct i915_perf_event *event)
+static bool i915_ring_event_can_read(struct i915_perf_event *event)
 {
 	struct drm_i915_private *dev_priv = event->dev_priv;
 
 	return !dev_priv->perf.oa.ops.oa_buffer_is_empty(dev_priv);
 }
 
-static int i915_oa_wait_unlocked(struct i915_perf_event *event)
+static int i915_ring_event_wait__unlocked(struct i915_perf_event *event)
 {
 	struct drm_i915_private *dev_priv = event->dev_priv;
 
@@ -448,17 +448,17 @@ static int i915_oa_wait_unlocked(struct i915_perf_event *event)
 					!dev_priv->perf.oa.ops.oa_buffer_is_empty(dev_priv));
 }
 
-static void i915_oa_poll_wait(struct i915_perf_event *event,
-			      struct file *file,
-			      poll_table *wait)
+static void i915_ring_event_poll_wait(struct i915_perf_event *event,
+				      struct file *file,
+				      poll_table *wait)
 {
 	struct drm_i915_private *dev_priv = event->dev_priv;
 
 	poll_wait(file, &dev_priv->perf.oa.poll_wq, wait);
 }
 
-static void i915_oa_read(struct i915_perf_event *event,
-			 struct i915_perf_read_state *read_state)
+static void i915_ring_event_read(struct i915_perf_event *event,
+				 struct i915_perf_read_state *read_state)
 {
 	struct drm_i915_private *dev_priv = event->dev_priv;
 
@@ -481,7 +481,7 @@ free_oa_buffer(struct drm_i915_private *i915)
 	mutex_unlock(&i915->dev->struct_mutex);
 }
 
-static void i915_oa_event_destroy(struct i915_perf_event *event)
+static void i915_ring_event_destroy(struct i915_perf_event *event)
 {
 	struct drm_i915_private *dev_priv = event->dev_priv;
 
@@ -872,7 +872,7 @@ static void gen8_oa_enable(struct drm_i915_private *dev_priv)
 	I915_WRITE(GEN8_OAHEADPTR, tail);
 }
 
-static void i915_oa_event_enable(struct i915_perf_event *event)
+static void i915_ring_event_enable(struct i915_perf_event *event)
 {
 	struct drm_i915_private *dev_priv = event->dev_priv;
 
@@ -894,7 +894,7 @@ static void gen8_oa_disable(struct drm_i915_private *dev_priv)
 	I915_WRITE(GEN8_OACONTROL, 0);
 }
 
-static void i915_oa_event_disable(struct i915_perf_event *event)
+static void i915_ring_event_disable(struct i915_perf_event *event)
 {
 	struct drm_i915_private *dev_priv = event->dev_priv;
 
@@ -904,16 +904,40 @@ static void i915_oa_event_disable(struct i915_perf_event *event)
 		hrtimer_cancel(&dev_priv->perf.oa.poll_check_timer);
 }
 
-static int i915_oa_event_init(struct i915_perf_event *event,
-			      struct drm_i915_perf_open_param *param)
+static int i915_ring_event_init(struct i915_perf_event *event,
+				struct drm_i915_perf_open_param *param)
 {
 	struct drm_i915_private *dev_priv = event->dev_priv;
-	struct drm_i915_perf_oa_attr oa_attr;
+	struct drm_i915_perf_ring_attr attr;
 	u32 known_flags = 0;
 	int format_size;
 	int ret;
 
-	BUG_ON(param->type != I915_PERF_OA_EVENT);
+	BUG_ON(param->type != I915_PERF_RING_EVENT);
+
+	ret = i915_perf_copy_attr(to_user_ptr(param->attr),
+					      &attr,
+					      I915_RING_ATTR_SIZE_VER0,
+					      sizeof(attr));
+	if (ret)
+		return ret;
+
+	known_flags = I915_PERF_RING_FLAG_OA_ENABLE |
+		      I915_PERF_RING_FLAG_OA_PERIODIC;
+	if (attr.flags & ~known_flags) {
+		DRM_ERROR("Unknown drm_i915_perf_ring_attr flag\n");
+		return -EINVAL;
+	}
+
+	if (!(attr.flags & I915_PERF_RING_FLAG_OA_ENABLE)) {
+		DRM_ERROR("Only OA sampling supported currently\n");
+		return -ENODEV;
+	}
+
+	if (attr.ring != I915_RING_RENDER) {
+		DRM_ERROR("Only render ring events supported currently\n");
+		return -ENODEV;
+	}
 
 	if (!dev_priv->perf.oa.ops.init_oa_buffer) {
 		DRM_ERROR("OA unit not supported\n");
@@ -928,25 +952,12 @@ static int i915_oa_event_init(struct i915_perf_event *event,
 		return -EBUSY;
 	}
 
-	ret = i915_perf_copy_attr(to_user_ptr(param->attr),
-					      &oa_attr,
-					      I915_OA_ATTR_SIZE_VER0,
-					      sizeof(oa_attr));
-	if (ret)
-		return ret;
-
-	known_flags = I915_OA_FLAG_PERIODIC;
-	if (oa_attr.flags & ~known_flags) {
-		DRM_ERROR("Unknown drm_i915_perf_oa_attr flag\n");
-		return -EINVAL;
-	}
-
-	if (oa_attr.oa_format >= I915_OA_FORMAT_MAX) {
+	if (attr.oa_format >= I915_OA_FORMAT_MAX) {
 		DRM_ERROR("Invalid OA report format\n");
 		return -EINVAL;
 	}
 
-	format_size = dev_priv->perf.oa.oa_formats[oa_attr.oa_format].size;
+	format_size = dev_priv->perf.oa.oa_formats[attr.oa_format].size;
 	if (!format_size) {
 		DRM_ERROR("Invalid OA report format\n");
 		return -EINVAL;
@@ -955,24 +966,25 @@ static int i915_oa_event_init(struct i915_perf_event *event,
 	dev_priv->perf.oa.oa_buffer.format_size = format_size;
 
 	dev_priv->perf.oa.oa_buffer.format =
-		dev_priv->perf.oa.oa_formats[oa_attr.oa_format].format;
+		dev_priv->perf.oa.oa_formats[attr.oa_format].format;
 
-	if (oa_attr.metrics_set <= 0 ||
-	    oa_attr.metrics_set > I915_OA_METRICS_SET_MAX) {
+	if (attr.metrics_set <= 0 ||
+	    attr.metrics_set > I915_OA_METRICS_SET_MAX) {
 		DRM_ERROR("Unknown Metric Set ID\n");
 		return -EINVAL;
 	}
 
-	dev_priv->perf.oa.metrics_set = oa_attr.metrics_set;
+	dev_priv->perf.oa.metrics_set = attr.metrics_set;
 
-	dev_priv->perf.oa.periodic = !!(oa_attr.flags & I915_OA_FLAG_PERIODIC);
+	dev_priv->perf.oa.periodic =
+		!!(attr.flags & I915_PERF_RING_FLAG_OA_PERIODIC);
 
 	/* NB: The exponent represents a period as follows:
 	 *
 	 *   80ns * 2^(period_exponent + 1)
 	 */
 	if (dev_priv->perf.oa.periodic) {
-		u64 period_exponent = oa_attr.oa_timer_exponent;
+		u64 period_exponent = attr.oa_timer_exponent;
 
 		if (period_exponent > OA_EXPONENT_MAX)
 			return -EINVAL;
@@ -984,7 +996,7 @@ static int i915_oa_event_init(struct i915_perf_event *event,
 		}
 
 		dev_priv->perf.oa.period_exponent = period_exponent;
-	} else if (oa_attr.oa_timer_exponent) {
+	} else if (attr.oa_timer_exponent) {
 		DRM_ERROR("Sampling exponent specified without requesting periodic sampling");
 		return -EINVAL;
 	}
@@ -1018,13 +1030,13 @@ static int i915_oa_event_init(struct i915_perf_event *event,
 	if (ret)
 		goto err_config;
 
-	event->destroy = i915_oa_event_destroy;
-	event->enable = i915_oa_event_enable;
-	event->disable = i915_oa_event_disable;
-	event->can_read = i915_oa_can_read;
-	event->wait_unlocked = i915_oa_wait_unlocked;
-	event->poll_wait = i915_oa_poll_wait;
-	event->read = i915_oa_read;
+	event->destroy = i915_ring_event_destroy;
+	event->enable = i915_ring_event_enable;
+	event->disable = i915_ring_event_disable;
+	event->can_read = i915_ring_event_can_read;
+	event->wait_unlocked = i915_ring_event_wait__unlocked;
+	event->poll_wait = i915_ring_event_poll_wait;
+	event->read = i915_ring_event_read;
 
 	return 0;
 
@@ -1475,8 +1487,8 @@ int i915_perf_open_ioctl_locked(struct drm_device *dev, void *data,
 	event->ctx = specific_ctx;
 
 	switch (param->type) {
-	case I915_PERF_OA_EVENT:
-		ret = i915_oa_event_init(event, param);
+	case I915_PERF_RING_EVENT:
+		ret = i915_ring_event_init(event, param);
 		if (ret)
 			goto err_alloc;
 		break;
