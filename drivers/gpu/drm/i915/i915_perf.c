@@ -1621,6 +1621,7 @@ void i915_perf_init(struct drm_device *dev)
 		dev_priv->perf.oa.ops.oa_buffer_is_empty = gen7_oa_buffer_is_empty;
 
 		dev_priv->perf.oa.oa_formats = hsw_oa_formats;
+		i915_perf_init_sysfs_hsw(dev_priv);
 	} else {
 		dev_priv->perf.oa.ops.init_oa_buffer = gen8_init_oa_buffer;
 		dev_priv->perf.oa.ops.oa_enable = gen8_oa_enable;
@@ -1642,6 +1643,7 @@ void i915_perf_init(struct drm_device *dev)
 				bdw_disable_metric_set;
 			dev_priv->perf.oa.ctx_oactxctrl_off = 0x120;
 			dev_priv->perf.oa.ctx_flexeu0_off = 0x2ce;
+			i915_perf_init_sysfs_bdw(dev_priv);
 		} else if (IS_CHERRYVIEW(dev)) {
 			dev_priv->perf.oa.ops.enable_metric_set =
 				chv_enable_metric_set;
@@ -1649,6 +1651,7 @@ void i915_perf_init(struct drm_device *dev)
 				chv_disable_metric_set;
 			dev_priv->perf.oa.ctx_oactxctrl_off = 0x120;
 			dev_priv->perf.oa.ctx_flexeu0_off = 0x2ce;
+			i915_perf_init_sysfs_chv(dev_priv);
 		} else if (IS_SKYLAKE(dev)) {
 			dev_priv->perf.oa.ops.enable_metric_set =
 				skl_enable_metric_set;
@@ -1656,6 +1659,7 @@ void i915_perf_init(struct drm_device *dev)
 				skl_disable_metric_set;
 			dev_priv->perf.oa.ctx_oactxctrl_off = 0x128;
 			dev_priv->perf.oa.ctx_flexeu0_off = 0x3de;
+			i915_perf_init_sysfs_skl(dev_priv);
 		}
 	}
 

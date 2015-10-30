@@ -24,6 +24,8 @@
  *
  */
 
+#include <linux/sysfs.h>
+
 #include "i915_drv.h"
 
 static const struct i915_oa_reg b_counter_config_3d[] = {
@@ -2481,4 +2483,164 @@ int i915_oa_select_metric_set_skl(struct drm_i915_private *dev_priv)
         default:
                 return -ENODEV;
         }
+}
+
+static ssize_t
+show_3d_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "fdfc01cc-e28e-423a-aae0-b5ed5d4d7a9f\n");
+}
+
+static DEVICE_ATTR(guid_3d, S_IRUGO, show_3d_guid, NULL);
+
+static ssize_t
+show_compute_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "c9c7ace5-614a-4f8e-90c7-30064c36cad2\n");
+}
+
+static DEVICE_ATTR(guid_compute, S_IRUGO, show_compute_guid, NULL);
+
+static ssize_t
+show_render_pipe_profile_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "99797dc2-b48f-4d83-b973-613cff01202b\n");
+}
+
+static DEVICE_ATTR(guid_render_pipe_profile, S_IRUGO, show_render_pipe_profile_guid, NULL);
+
+static ssize_t
+show_memory_reads_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "afa148ea-77fb-48ee-b8f8-e5e971ecf589\n");
+}
+
+static DEVICE_ATTR(guid_memory_reads, S_IRUGO, show_memory_reads_guid, NULL);
+
+static ssize_t
+show_memory_writes_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "bfce7061-e6f1-4a78-bed8-c9cc69af70f9\n");
+}
+
+static DEVICE_ATTR(guid_memory_writes, S_IRUGO, show_memory_writes_guid, NULL);
+
+static ssize_t
+show_compute_extended_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "c35ddcab-b1f2-452f-969a-a8209d531a00\n");
+}
+
+static DEVICE_ATTR(guid_compute_extended, S_IRUGO, show_compute_extended_guid, NULL);
+
+static ssize_t
+show_compute_l3_cache_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "2b0d0c83-706a-4cb6-b55e-d6bcf51fa6d3\n");
+}
+
+static DEVICE_ATTR(guid_compute_l3_cache, S_IRUGO, show_compute_l3_cache_guid, NULL);
+
+static ssize_t
+show_hdc_and_sf_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "d084f6a9-f706-4b74-b98c-65daa5340517\n");
+}
+
+static DEVICE_ATTR(guid_hdc_and_sf, S_IRUGO, show_hdc_and_sf_guid, NULL);
+
+static ssize_t
+show_l3_1_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "c7ed493c-54ff-4152-baf4-07e31e7a24cb\n");
+}
+
+static DEVICE_ATTR(guid_l3_1, S_IRUGO, show_l3_1_guid, NULL);
+
+static ssize_t
+show_l3_2_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "43ad9300-198a-4734-8f3a-2a2151b9dab6\n");
+}
+
+static DEVICE_ATTR(guid_l3_2, S_IRUGO, show_l3_2_guid, NULL);
+
+static ssize_t
+show_l3_3_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "ccfce3f2-6c63-4630-a043-f2a0243fed8f\n");
+}
+
+static DEVICE_ATTR(guid_l3_3, S_IRUGO, show_l3_3_guid, NULL);
+
+static ssize_t
+show_rasterizer_and_pixel_backend_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "2e564b28-98fa-42a0-8bbc-7915de3cc03c\n");
+}
+
+static DEVICE_ATTR(guid_rasterizer_and_pixel_backend, S_IRUGO, show_rasterizer_and_pixel_backend_guid, NULL);
+
+static ssize_t
+show_sampler_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "a305533f-7e36-4fb6-8749-c6280bce3457\n");
+}
+
+static DEVICE_ATTR(guid_sampler, S_IRUGO, show_sampler_guid, NULL);
+
+static ssize_t
+show_tdl_1_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "34ecd59f-6b52-4004-916f-afe9530a0442\n");
+}
+
+static DEVICE_ATTR(guid_tdl_1, S_IRUGO, show_tdl_1_guid, NULL);
+
+static ssize_t
+show_tdl_2_guid(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "ee1990d9-6e93-4c7c-aa9e-b40e1ec4d41b\n");
+}
+
+static DEVICE_ATTR(guid_tdl_2, S_IRUGO, show_tdl_2_guid, NULL);
+
+static struct attribute *metrics_attrs[] = {
+        &dev_attr_guid_3d.attr,
+        &dev_attr_guid_compute.attr,
+        &dev_attr_guid_render_pipe_profile.attr,
+        &dev_attr_guid_memory_reads.attr,
+        &dev_attr_guid_memory_writes.attr,
+        &dev_attr_guid_compute_extended.attr,
+        &dev_attr_guid_compute_l3_cache.attr,
+        &dev_attr_guid_hdc_and_sf.attr,
+        &dev_attr_guid_l3_1.attr,
+        &dev_attr_guid_l3_2.attr,
+        &dev_attr_guid_l3_3.attr,
+        &dev_attr_guid_rasterizer_and_pixel_backend.attr,
+        &dev_attr_guid_sampler.attr,
+        &dev_attr_guid_tdl_1.attr,
+        &dev_attr_guid_tdl_2.attr,
+        NULL,
+};
+
+static struct attribute_group metrics_attr_group = {
+        .name = "metrics",
+        .attrs =  metrics_attrs
+};
+
+int
+i915_perf_init_sysfs_skl(struct drm_i915_private *dev_priv)
+{
+        struct drm_device *dev = dev_priv->dev;
+
+        return sysfs_create_group(&dev->primary->kdev->kobj, &metrics_attr_group);
+}
+
+void
+i915_perf_deinit_sysfs_skl(struct drm_i915_private *dev_priv)
+{
+        struct drm_device *dev = dev_priv->dev;
+
+        sysfs_remove_group(&dev->primary->kdev->kobj, &metrics_attr_group);
 }
