@@ -1972,6 +1972,8 @@ struct drm_i915_private {
 
 		struct ctl_table_header *sysctl_header;
 
+		struct kobject *metrics_kobj;
+
 		struct {
 			struct i915_perf_event *exclusive_event;
 
