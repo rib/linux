@@ -1348,7 +1348,6 @@ int i915_perf_open_ioctl_locked(struct drm_device *dev,
 		goto err_alloc;
 	}
 
-	stream->ctx = specific_ctx;
 	list_add(&stream->link, &dev_priv->perf.streams);
 
 	if (param->flags & I915_PERF_FLAG_FD_CLOEXEC)
