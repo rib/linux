@@ -28,14 +28,32 @@
 
 #include "i915_drv.h"
 
-static const struct i915_oa_reg b_counter_config_3d[] = {
+enum metric_set_id {
+        METRIC_SET_ID_RENDER_BASIC = 1,
+        METRIC_SET_ID_COMPUTE_BASIC,
+        METRIC_SET_ID_RENDER_PIPE_PROFILE,
+        METRIC_SET_ID_HDC_AND_SF,
+        METRIC_SET_ID_L3_1,
+        METRIC_SET_ID_L3_2,
+        METRIC_SET_ID_L3_3,
+        METRIC_SET_ID_L3_4,
+        METRIC_SET_ID_RASTERIZER_AND_PIXEL_BACKEND,
+        METRIC_SET_ID_SAMPLER_1,
+        METRIC_SET_ID_SAMPLER_2,
+        METRIC_SET_ID_TDL_1,
+        METRIC_SET_ID_TDL_2,
+};
+
+int i915_oa_n_builtin_metric_sets_chv = 13;
+
+static const struct i915_oa_reg b_counter_config_render_basic[] = {
 	{ 0x2710, 0x00000000 },
 	{ 0x2714, 0x00800000 },
 	{ 0x2720, 0x00000000 },
 	{ 0x2724, 0x00800000 },
 };
 
-static const struct i915_oa_reg flex_eu_config_3d[] = {
+static const struct i915_oa_reg flex_eu_config_render_basic[] = {
 	{ 0xE458, 0x00005004 },
 	{ 0xE558, 0x00010003 },
 	{ 0xE658, 0x00012011 },
@@ -45,7 +63,7 @@ static const struct i915_oa_reg flex_eu_config_3d[] = {
 	{ 0xE65c, 0x00055054 },
 };
 
-static const struct i915_oa_reg mux_config_3d[] = {
+static const struct i915_oa_reg mux_config_render_basic[] = {
 	{ 0x9888, 0x59800000 },
 	{ 0x9888, 0x59800001 },
 	{ 0x9888, 0x2C110014 },
@@ -109,34 +127,34 @@ static const struct i915_oa_reg mux_config_3d[] = {
 	{ 0x9888, 0x59800000 },
 };
 
-static int select_3d_config(struct drm_i915_private *dev_priv)
+static int select_render_basic_config(struct drm_i915_private *dev_priv)
 {
         dev_priv->perf.oa.mux_regs =
-                mux_config_3d;
+                mux_config_render_basic;
         dev_priv->perf.oa.mux_regs_len =
-                ARRAY_SIZE(mux_config_3d);
+                ARRAY_SIZE(mux_config_render_basic);
 
         dev_priv->perf.oa.b_counter_regs =
-                b_counter_config_3d;
+                b_counter_config_render_basic;
         dev_priv->perf.oa.b_counter_regs_len =
-                ARRAY_SIZE(b_counter_config_3d);
+                ARRAY_SIZE(b_counter_config_render_basic);
 
         dev_priv->perf.oa.flex_regs =
-                flex_eu_config_3d;
+                flex_eu_config_render_basic;
         dev_priv->perf.oa.flex_regs_len =
-                ARRAY_SIZE(flex_eu_config_3d);
+                ARRAY_SIZE(flex_eu_config_render_basic);
 
         return 0;
 }
 
-static const struct i915_oa_reg b_counter_config_compute[] = {
+static const struct i915_oa_reg b_counter_config_compute_basic[] = {
 	{ 0x2710, 0x00000000 },
 	{ 0x2714, 0x00800000 },
 	{ 0x2720, 0x00000000 },
 	{ 0x2724, 0x00800000 },
 };
 
-static const struct i915_oa_reg flex_eu_config_compute[] = {
+static const struct i915_oa_reg flex_eu_config_compute_basic[] = {
 	{ 0xE458, 0x00005004 },
 	{ 0xE558, 0x00000003 },
 	{ 0xE658, 0x00002001 },
@@ -146,7 +164,7 @@ static const struct i915_oa_reg flex_eu_config_compute[] = {
 	{ 0xE65c, 0x00a08908 },
 };
 
-static const struct i915_oa_reg mux_config_compute[] = {
+static const struct i915_oa_reg mux_config_compute_basic[] = {
 	{ 0x9888, 0x59800000 },
 	{ 0x9888, 0x59800001 },
 	{ 0x9888, 0x2E5800E0 },
@@ -190,22 +208,22 @@ static const struct i915_oa_reg mux_config_compute[] = {
 	{ 0x9888, 0x59800000 },
 };
 
-static int select_compute_config(struct drm_i915_private *dev_priv)
+static int select_compute_basic_config(struct drm_i915_private *dev_priv)
 {
         dev_priv->perf.oa.mux_regs =
-                mux_config_compute;
+                mux_config_compute_basic;
         dev_priv->perf.oa.mux_regs_len =
-                ARRAY_SIZE(mux_config_compute);
+                ARRAY_SIZE(mux_config_compute_basic);
 
         dev_priv->perf.oa.b_counter_regs =
-                b_counter_config_compute;
+                b_counter_config_compute_basic;
         dev_priv->perf.oa.b_counter_regs_len =
-                ARRAY_SIZE(b_counter_config_compute);
+                ARRAY_SIZE(b_counter_config_compute_basic);
 
         dev_priv->perf.oa.flex_regs =
-                flex_eu_config_compute;
+                flex_eu_config_compute_basic;
         dev_priv->perf.oa.flex_regs_len =
-                ARRAY_SIZE(flex_eu_config_compute);
+                ARRAY_SIZE(flex_eu_config_compute_basic);
 
         return 0;
 }
@@ -1984,31 +2002,31 @@ int i915_oa_select_metric_set_chv(struct drm_i915_private *dev_priv)
         dev_priv->perf.oa.flex_regs_len = 0;
 
         switch (dev_priv->perf.oa.metrics_set) {
-        case I915_OA_METRICS_SET_3D:
-                return select_3d_config(dev_priv);
-        case I915_OA_METRICS_SET_COMPUTE:
-                return select_compute_config(dev_priv);
-        case I915_OA_METRICS_SET_RENDER_PIPE_PROFILE:
+        case METRIC_SET_ID_RENDER_BASIC:
+                return select_render_basic_config(dev_priv);
+        case METRIC_SET_ID_COMPUTE_BASIC:
+                return select_compute_basic_config(dev_priv);
+        case METRIC_SET_ID_RENDER_PIPE_PROFILE:
                 return select_render_pipe_profile_config(dev_priv);
-        case I915_OA_METRICS_SET_HDC_AND_SF:
+        case METRIC_SET_ID_HDC_AND_SF:
                 return select_hdc_and_sf_config(dev_priv);
-        case I915_OA_METRICS_SET_L3_1:
+        case METRIC_SET_ID_L3_1:
                 return select_l3_1_config(dev_priv);
-        case I915_OA_METRICS_SET_L3_2:
+        case METRIC_SET_ID_L3_2:
                 return select_l3_2_config(dev_priv);
-        case I915_OA_METRICS_SET_L3_3:
+        case METRIC_SET_ID_L3_3:
                 return select_l3_3_config(dev_priv);
-        case I915_OA_METRICS_SET_L3_4:
+        case METRIC_SET_ID_L3_4:
                 return select_l3_4_config(dev_priv);
-        case I915_OA_METRICS_SET_RASTERIZER_AND_PIXEL_BACKEND:
+        case METRIC_SET_ID_RASTERIZER_AND_PIXEL_BACKEND:
                 return select_rasterizer_and_pixel_backend_config(dev_priv);
-        case I915_OA_METRICS_SET_SAMPLER_1:
+        case METRIC_SET_ID_SAMPLER_1:
                 return select_sampler_1_config(dev_priv);
-        case I915_OA_METRICS_SET_SAMPLER_2:
+        case METRIC_SET_ID_SAMPLER_2:
                 return select_sampler_2_config(dev_priv);
-        case I915_OA_METRICS_SET_TDL_1:
+        case METRIC_SET_ID_TDL_1:
                 return select_tdl_1_config(dev_priv);
-        case I915_OA_METRICS_SET_TDL_2:
+        case METRIC_SET_ID_TDL_2:
                 return select_tdl_2_config(dev_priv);
         default:
                 return -ENODEV;
@@ -2016,53 +2034,53 @@ int i915_oa_select_metric_set_chv(struct drm_i915_private *dev_priv)
 }
 
 static ssize_t
-show_3d_id(struct device *kdev, struct device_attribute *attr, char *buf)
+show_render_basic_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_3D);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_RENDER_BASIC);
 }
 
-static struct device_attribute dev_attr_3d_id = {
+static struct device_attribute dev_attr_render_basic_id = {
         .attr = { .name = "id", .mode = S_IRUGO },
-        .show = show_3d_id,
+        .show = show_render_basic_id,
         .store = NULL,
 };
 
-static struct attribute *attrs_3d[] = {
-        &dev_attr_3d_id.attr,
+static struct attribute *attrs_render_basic[] = {
+        &dev_attr_render_basic_id.attr,
         NULL,
 };
 
-static struct attribute_group group_3d = {
+static struct attribute_group group_render_basic = {
         .name = "9d8a3af5-c02c-4a4a-b947-f1672469e0fb",
-        .attrs =  attrs_3d,
+        .attrs =  attrs_render_basic,
 };
 
 static ssize_t
-show_compute_id(struct device *kdev, struct device_attribute *attr, char *buf)
+show_compute_basic_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_COMPUTE);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_COMPUTE_BASIC);
 }
 
-static struct device_attribute dev_attr_compute_id = {
+static struct device_attribute dev_attr_compute_basic_id = {
         .attr = { .name = "id", .mode = S_IRUGO },
-        .show = show_compute_id,
+        .show = show_compute_basic_id,
         .store = NULL,
 };
 
-static struct attribute *attrs_compute[] = {
-        &dev_attr_compute_id.attr,
+static struct attribute *attrs_compute_basic[] = {
+        &dev_attr_compute_basic_id.attr,
         NULL,
 };
 
-static struct attribute_group group_compute = {
+static struct attribute_group group_compute_basic = {
         .name = "f522a89c-ecd1-4522-8331-3383c54af5f5",
-        .attrs =  attrs_compute,
+        .attrs =  attrs_compute_basic,
 };
 
 static ssize_t
 show_render_pipe_profile_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_RENDER_PIPE_PROFILE);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_RENDER_PIPE_PROFILE);
 }
 
 static struct device_attribute dev_attr_render_pipe_profile_id = {
@@ -2084,7 +2102,7 @@ static struct attribute_group group_render_pipe_profile = {
 static ssize_t
 show_hdc_and_sf_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_HDC_AND_SF);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_HDC_AND_SF);
 }
 
 static struct device_attribute dev_attr_hdc_and_sf_id = {
@@ -2106,7 +2124,7 @@ static struct attribute_group group_hdc_and_sf = {
 static ssize_t
 show_l3_1_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_L3_1);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_L3_1);
 }
 
 static struct device_attribute dev_attr_l3_1_id = {
@@ -2128,7 +2146,7 @@ static struct attribute_group group_l3_1 = {
 static ssize_t
 show_l3_2_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_L3_2);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_L3_2);
 }
 
 static struct device_attribute dev_attr_l3_2_id = {
@@ -2150,7 +2168,7 @@ static struct attribute_group group_l3_2 = {
 static ssize_t
 show_l3_3_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_L3_3);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_L3_3);
 }
 
 static struct device_attribute dev_attr_l3_3_id = {
@@ -2172,7 +2190,7 @@ static struct attribute_group group_l3_3 = {
 static ssize_t
 show_l3_4_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_L3_4);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_L3_4);
 }
 
 static struct device_attribute dev_attr_l3_4_id = {
@@ -2194,7 +2212,7 @@ static struct attribute_group group_l3_4 = {
 static ssize_t
 show_rasterizer_and_pixel_backend_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_RASTERIZER_AND_PIXEL_BACKEND);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_RASTERIZER_AND_PIXEL_BACKEND);
 }
 
 static struct device_attribute dev_attr_rasterizer_and_pixel_backend_id = {
@@ -2216,7 +2234,7 @@ static struct attribute_group group_rasterizer_and_pixel_backend = {
 static ssize_t
 show_sampler_1_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_SAMPLER_1);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_SAMPLER_1);
 }
 
 static struct device_attribute dev_attr_sampler_1_id = {
@@ -2238,7 +2256,7 @@ static struct attribute_group group_sampler_1 = {
 static ssize_t
 show_sampler_2_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_SAMPLER_2);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_SAMPLER_2);
 }
 
 static struct device_attribute dev_attr_sampler_2_id = {
@@ -2260,7 +2278,7 @@ static struct attribute_group group_sampler_2 = {
 static ssize_t
 show_tdl_1_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_TDL_1);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_TDL_1);
 }
 
 static struct device_attribute dev_attr_tdl_1_id = {
@@ -2282,7 +2300,7 @@ static struct attribute_group group_tdl_1 = {
 static ssize_t
 show_tdl_2_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "%d\n", I915_OA_METRICS_SET_TDL_2);
+        return sprintf(buf, "%d\n", METRIC_SET_ID_TDL_2);
 }
 
 static struct device_attribute dev_attr_tdl_2_id = {
@@ -2306,12 +2324,12 @@ i915_perf_init_sysfs_chv(struct drm_i915_private *dev_priv)
 {
         int ret;
 
-        ret = sysfs_create_group(dev_priv->perf.metrics_kobj, &group_3d);
+        ret = sysfs_create_group(dev_priv->perf.metrics_kobj, &group_render_basic);
         if (ret)
-                goto error_3d;
-        ret = sysfs_create_group(dev_priv->perf.metrics_kobj, &group_compute);
+                goto error_render_basic;
+        ret = sysfs_create_group(dev_priv->perf.metrics_kobj, &group_compute_basic);
         if (ret)
-                goto error_compute;
+                goto error_compute_basic;
         ret = sysfs_create_group(dev_priv->perf.metrics_kobj, &group_render_pipe_profile);
         if (ret)
                 goto error_render_pipe_profile;
@@ -2369,18 +2387,18 @@ error_l3_1:
 error_hdc_and_sf:
         sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_render_pipe_profile);
 error_render_pipe_profile:
-        sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_compute);
-error_compute:
-        sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_3d);
-error_3d:
+        sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_compute_basic);
+error_compute_basic:
+        sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_render_basic);
+error_render_basic:
         return ret;
 }
 
 void
 i915_perf_deinit_sysfs_chv(struct drm_i915_private *dev_priv)
 {
-        sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_3d);
-        sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_compute);
+        sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_render_basic);
+        sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_compute_basic);
         sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_render_pipe_profile);
         sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_hdc_and_sf);
         sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_l3_1);

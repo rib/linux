@@ -27,6 +27,8 @@
 #ifndef __I915_OA_HSW_H__
 #define __I915_OA_HSW_H__
 
+extern int i915_oa_n_builtin_metric_sets_hsw;
+
 extern int i915_oa_select_metric_set_hsw(struct drm_i915_private *dev_priv);
 
 extern int i915_perf_init_sysfs_hsw(struct drm_i915_private *dev_priv);

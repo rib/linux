@@ -1431,7 +1431,7 @@ static int read_properties_unlocked(struct drm_i915_private *dev_priv,
 			props->sample_flags |= SAMPLE_OA_REPORT;
 			break;
 		case DRM_I915_PERF_OA_METRICS_SET_PROP:
-			if (value == 0 || value >= I915_OA_METRICS_SET_MAX) {
+			if (value == 0 || value > dev_priv->perf.oa.n_builtin_sets) {
 				DRM_ERROR("Unknown OA metric set ID");
 				return -EINVAL;
 			}
@@ -1586,6 +1586,9 @@ void i915_perf_init(struct drm_device *dev)
 
 		dev_priv->perf.oa.oa_formats = hsw_oa_formats;
 		i915_perf_init_sysfs_hsw(dev_priv);
+
+		dev_priv->perf.oa.n_builtin_sets =
+			i915_oa_n_builtin_metric_sets_hsw;
 	} else {
 		dev_priv->perf.oa.ops.init_oa_buffer = gen8_init_oa_buffer;
 		dev_priv->perf.oa.ops.oa_enable = gen8_oa_enable;
@@ -1610,6 +1613,9 @@ void i915_perf_init(struct drm_device *dev)
 
 			if (i915_perf_init_sysfs_bdw(dev_priv))
 				goto error_sysfs;
+
+			dev_priv->perf.oa.n_builtin_sets =
+				i915_oa_n_builtin_metric_sets_bdw;
 		} else if (IS_CHERRYVIEW(dev)) {
 			dev_priv->perf.oa.ops.enable_metric_set =
 				chv_enable_metric_set;
@@ -1620,6 +1626,9 @@ void i915_perf_init(struct drm_device *dev)
 
 			if (i915_perf_init_sysfs_chv(dev_priv))
 				goto error_sysfs;
+
+			dev_priv->perf.oa.n_builtin_sets =
+				i915_oa_n_builtin_metric_sets_chv;
 		} else if (IS_SKYLAKE(dev)) {
 			dev_priv->perf.oa.ops.enable_metric_set =
 				skl_enable_metric_set;
@@ -1630,6 +1639,9 @@ void i915_perf_init(struct drm_device *dev)
 
 			if (i915_perf_init_sysfs_skl(dev_priv))
 				goto error_sysfs;
+
+			dev_priv->perf.oa.n_builtin_sets =
+				i915_oa_n_builtin_metric_sets_skl;
 		}
 	}
 
