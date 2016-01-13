@@ -1364,12 +1364,10 @@ int i915_perf_open_ioctl_locked(struct drm_device *dev,
 		goto err_open;
 	}
 
-	param->fd = stream_fd;
-
 	if (!(param->flags & I915_PERF_FLAG_DISABLED))
 		i915_perf_enable_locked(stream);
 
-	return 0;
+	return stream_fd;
 
 err_open:
 	list_del(&stream->link);
@@ -1384,8 +1382,6 @@ err_ctx:
 		mutex_unlock(&dev_priv->dev->struct_mutex);
 	}
 err:
-	param->fd = -1;
-
 	return ret;
 }
 

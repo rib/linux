@@ -1233,9 +1233,6 @@ struct drm_i915_perf_open_param {
 
 	/** The number of u64 (id, value) pairs */
 	__u32 n_properties;
-
-	/* OUT */
-	__u32 fd;
 };
 
 #define I915_PERF_IOCTL_ENABLE	_IO('i', 0x0)
