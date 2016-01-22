@@ -1582,6 +1582,29 @@ int i915_perf_open_ioctl(struct drm_device *dev, void *data,
 	return ret;
 }
 
+static inline bool is_valid_flex_addr(struct drm_device *dev, u32 addr)
+{
+	return (addr >= 0xE458 && addr <= 0xE758);
+}
+
+static inline bool is_valid_b_counter_addr(struct drm_device *dev, u32 addr)
+{
+	return (addr >= 0x2360 && addr <= 0x2B14);
+}
+
+static inline bool is_valid_mux_addr(struct drm_device *dev, u32 addr)
+{
+	return (addr == 0x9888 || addr == 0xD24 || addr == 0xD28 ||
+		(addr >= 0x25100 && addr <= 0x2FB9C));
+}
+
+static inline bool is_valid_oa_addr_range(struct drm_device *dev, u32 addr)
+{
+	return (is_valid_mux_addr(dev, addr) ||
+		is_valid_b_counter_addr(dev, addr) ||
+		is_valid_flex_addr(dev, addr));
+}
+
 static struct i915_oa_reg *alloc_oa_regs(struct drm_i915_private *dev_priv,
 					 u32 __user *regs,
 					 u32 n_regs)
@@ -1606,6 +1629,12 @@ static struct i915_oa_reg *alloc_oa_regs(struct drm_i915_private *dev_priv,
 		ret = get_user(addr, regs);
 		if (ret) {
 			err = ret;
+			goto addr_err;
+		}
+
+		if (!is_valid_oa_addr_range(dev_priv->dev, addr)) {
+			DRM_ERROR("Invalid oa_reg address: %X\n", addr);
+			err = -EINVAL;
 			goto addr_err;
 		}
 
