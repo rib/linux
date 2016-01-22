@@ -95,6 +95,22 @@ struct perf_open_properties
 	u32 oa_period_exponent;
 };
 
+struct i915_oa_config
+{
+	char guid[40];
+	int id;
+
+	const struct i915_oa_reg *mux_regs;
+	int mux_regs_len;
+	const struct i915_oa_reg *b_counter_regs;
+	int b_counter_regs_len;
+	const struct i915_oa_reg *flex_regs;
+	int flex_regs_len;
+
+	struct attribute_group sysfs_metric;
+	struct attribute *attrs[2];
+	struct device_attribute sysfs_metric_id;
+};
 
 static bool gen8_oa_buffer_is_empty(struct drm_i915_private *dev_priv)
 {
@@ -541,9 +557,36 @@ static void config_oa_regs(struct drm_i915_private *dev_priv,
 	}
 }
 
+int select_dynamic_metric_set(struct drm_i915_private *dev_priv)
+{
+	struct i915_oa_config *oa_config;
+
+	oa_config = idr_find(&dev_priv->perf.metrics_idr,
+			     dev_priv->perf.oa.metrics_set);
+	if (!oa_config) {
+		return -EINVAL;
+	}
+
+	dev_priv->perf.oa.mux_regs = oa_config->mux_regs;
+	dev_priv->perf.oa.mux_regs_len = oa_config->mux_regs_len;
+
+	dev_priv->perf.oa.b_counter_regs = oa_config->b_counter_regs;
+	dev_priv->perf.oa.b_counter_regs_len = oa_config->b_counter_regs_len;
+
+	dev_priv->perf.oa.flex_regs = oa_config->flex_regs;
+	dev_priv->perf.oa.flex_regs_len = oa_config->flex_regs_len;
+
+	return 0;
+}
+
 static int hsw_enable_metric_set(struct drm_i915_private *dev_priv)
 {
-	int ret = i915_oa_select_metric_set_hsw(dev_priv);
+	int ret;
+
+	if (dev_priv->perf.oa.metrics_set > dev_priv->perf.oa.n_builtin_sets)
+		ret = select_dynamic_metric_set(dev_priv);
+	else
+		ret = i915_oa_select_metric_set_hsw(dev_priv);
 
 	if (ret)
 		return ret;
@@ -649,7 +692,12 @@ static int configure_all_contexts(struct drm_i915_private *dev_priv)
 
 static int bdw_enable_metric_set(struct drm_i915_private *dev_priv)
 {
-	int ret = i915_oa_select_metric_set_bdw(dev_priv);
+	int ret;
+
+	if (dev_priv->perf.oa.metrics_set > dev_priv->perf.oa.n_builtin_sets)
+		ret = select_dynamic_metric_set(dev_priv);
+	else
+		ret = i915_oa_select_metric_set_bdw(dev_priv);
 
 	if (ret)
 		return ret;
@@ -677,7 +725,12 @@ static void bdw_disable_metric_set(struct drm_i915_private *dev_priv)
 
 static int chv_enable_metric_set(struct drm_i915_private *dev_priv)
 {
-	int ret = i915_oa_select_metric_set_chv(dev_priv);
+	int ret;
+
+	if (dev_priv->perf.oa.metrics_set > dev_priv->perf.oa.n_builtin_sets)
+		ret = select_dynamic_metric_set(dev_priv);
+	else
+		ret = i915_oa_select_metric_set_chv(dev_priv);
 
 	if (ret)
 		return ret;
@@ -705,7 +758,12 @@ static void chv_disable_metric_set(struct drm_i915_private *dev_priv)
 
 static int skl_enable_metric_set(struct drm_i915_private *dev_priv)
 {
-	int ret = i915_oa_select_metric_set_skl(dev_priv);
+	int ret;
+
+	if (dev_priv->perf.oa.metrics_set > dev_priv->perf.oa.n_builtin_sets)
+		ret = select_dynamic_metric_set(dev_priv);
+	else
+		ret = i915_oa_select_metric_set_skl(dev_priv);
 
 	if (ret)
 		return ret;
@@ -1296,8 +1354,9 @@ int i915_perf_open_ioctl_locked(struct drm_device *dev,
 	int stream_fd;
 	int ret = 0;
 
-	if (props->metrics_set < 1 ||
-	    props->metrics_set > dev_priv->perf.oa.n_builtin_sets) {
+	if ((props->metrics_set < 1 ||
+	    props->metrics_set > dev_priv->perf.oa.n_builtin_sets) &&
+	    !idr_find(&dev_priv->perf.metrics_idr, props->metrics_set)) {
 		DRM_ERROR("Invalid metrics set ID %d\n", props->metrics_set);
 		ret = -EINVAL;
 		goto err;
@@ -1439,10 +1498,6 @@ static int read_properties_unlocked(struct drm_i915_private *dev_priv,
 			props->sample_flags |= SAMPLE_OA_REPORT;
 			break;
 		case DRM_I915_PERF_OA_METRICS_SET_PROP:
-			if (value == 0 || value > dev_priv->perf.oa.n_builtin_sets) {
-				DRM_ERROR("Unknown OA metric set ID");
-				return -EINVAL;
-			}
 			props->metrics_set = value;
 			break;
 		case DRM_I915_PERF_OA_FORMAT_PROP:
@@ -1514,6 +1569,218 @@ int i915_perf_open_ioctl(struct drm_device *dev, void *data,
 	return ret;
 }
 
+static inline bool is_valid_flex_addr(struct drm_device *dev, u32 addr)
+{
+	return (addr >= 0xE458 && addr <= 0xE758);
+}
+
+static inline bool is_valid_b_counter_addr(struct drm_device *dev, u32 addr)
+{
+	return (addr >= 0x2360 && addr <= 0x2B14);
+}
+
+static inline bool is_valid_mux_addr(struct drm_device *dev, u32 addr)
+{
+	return (addr == 0x9888 || addr == 0xD24 || addr == 0xD28 ||
+		(addr >= 0x25100 && addr <= 0x2FB9C));
+}
+
+static inline bool is_valid_oa_addr_range(struct drm_device *dev, u32 addr)
+{
+	return (is_valid_mux_addr(dev, addr) ||
+		is_valid_b_counter_addr(dev, addr) ||
+		is_valid_flex_addr(dev, addr));
+}
+
+static struct i915_oa_reg *alloc_oa_regs(struct drm_i915_private *dev_priv,
+					 u32 __user *regs,
+					 u32 n_regs)
+{
+	int err;
+	int i;
+	struct i915_oa_reg *oa_regs;
+
+	if (!n_regs) {
+		return NULL;
+	}
+
+	oa_regs = kmalloc(sizeof(*oa_regs) * n_regs, GFP_KERNEL);
+	if (!oa_regs) {
+		return ERR_PTR(-ENOMEM);
+	}
+
+	for (i = 0; i < n_regs; i++) {
+		int ret;
+		u32 addr, value;
+
+		ret = get_user(addr, regs);
+		if (ret) {
+			err = ret;
+			goto addr_err;
+		}
+
+		if (!is_valid_oa_addr_range(dev_priv->dev, addr)) {
+			DRM_ERROR("Invalid oa_reg address: %X\n", addr);
+			err = -EINVAL;
+			goto addr_err;
+		}
+
+		ret = get_user(value, regs + 1);
+		if (ret) {
+			err = ret;
+			goto value_err;
+		}
+
+		oa_regs[i].addr = addr;
+		oa_regs[i].value = value;
+
+		regs += 2;
+	}
+
+	return oa_regs;
+
+addr_err:
+value_err:
+	kfree(oa_regs);
+	return ERR_PTR(err);
+}
+
+static ssize_t show_dynamic_id(struct device *dev,
+			       struct device_attribute *attr,
+			       char *buf)
+{
+	struct i915_oa_config *oa_config =
+		container_of(attr, typeof(*oa_config), sysfs_metric_id);
+
+	return sprintf(buf, "%d\n", oa_config->id);
+}
+
+static int create_dynamic_oa_sysfs_entry(struct drm_i915_private *dev_priv,
+					 struct i915_oa_config *oa_config)
+{
+	oa_config->sysfs_metric_id.attr.name = "id";
+	oa_config->sysfs_metric_id.attr.mode = S_IRUGO;
+	oa_config->sysfs_metric_id.show = show_dynamic_id;
+	oa_config->sysfs_metric_id.store = NULL;
+
+	oa_config->attrs[0] = &oa_config->sysfs_metric_id.attr;
+	oa_config->attrs[1] = NULL;
+
+	oa_config->sysfs_metric.name = oa_config->guid;
+	oa_config->sysfs_metric.attrs = oa_config->attrs;
+
+	return sysfs_create_group(dev_priv->perf.metrics_kobj,
+				  &oa_config->sysfs_metric);
+}
+
+int i915_perf_add_config_ioctl(struct drm_device *dev, void *data,
+			       struct drm_file *file)
+{
+	int err;
+	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_perf_oa_config *args = data;
+	struct i915_oa_config *oa_config, *tmp;
+	int id;
+	unsigned int x1, x2, x3, x4, x5;
+
+	if (!capable(CAP_SYS_ADMIN)) {
+		DRM_ERROR("Insufficient privileges to add i915 OA config\n");
+		return -EACCES;
+	}
+
+	if (!args->mux_regs && !args->boolean_regs && !args->flex_regs) {
+		DRM_ERROR("No OA registers given\n");
+		return -EINVAL;
+	}
+
+	oa_config = kzalloc(sizeof(*oa_config), GFP_KERNEL);
+	if (!oa_config) {
+		DRM_ERROR("Failed to allocate memory for the OA config\n");
+		return -ENOMEM;
+	}
+
+	err = strncpy_from_user(oa_config->guid, to_user_ptr(args->uuid),
+				sizeof(oa_config->guid));
+	if (err < 0) {
+		DRM_ERROR("Failed to copy uuid from OA config\n");
+		goto uuid_err;
+	}
+
+	idr_for_each_entry(&dev_priv->perf.metrics_idr, tmp, id) {
+		if (!strcmp(tmp->guid, oa_config->guid)) {
+			DRM_ERROR("OA config already exists with this uuid\n");
+			err = -EADDRINUSE;
+			goto uuid_err;
+		}
+	}
+
+	if (sscanf(oa_config->guid, "%08x-%04x-%04x-%04x-%012x", &x1, &x2, &x3,
+		   &x4, &x5) != 5) {
+		DRM_ERROR("Invalid uuid format for OA config\n");
+		err = -EINVAL;
+		goto uuid_err;
+	}
+
+	oa_config->mux_regs_len = args->n_mux_regs;
+	oa_config->mux_regs = alloc_oa_regs(dev_priv,
+					    to_user_ptr(args->mux_regs),
+					    args->n_mux_regs);
+
+	if (IS_ERR(oa_config->mux_regs)) {
+		DRM_ERROR("Failed to create OA config for mux_regs\n");
+		err = PTR_ERR(oa_config->mux_regs);
+		goto mux_err;
+	}
+
+	oa_config->b_counter_regs_len = args->n_boolean_regs;
+	oa_config->b_counter_regs
+		= alloc_oa_regs(dev_priv,
+				to_user_ptr(args->boolean_regs),
+				args->n_boolean_regs);
+
+	if (IS_ERR(oa_config->b_counter_regs)) {
+		DRM_ERROR("Failed to create OA config for b_counter_regs\n");
+		err = PTR_ERR(oa_config->b_counter_regs);
+		goto boolean_err;
+	}
+
+	oa_config->flex_regs_len = args->n_flex_regs;
+	oa_config->flex_regs = alloc_oa_regs(dev_priv,
+					     to_user_ptr(args->flex_regs),
+					     args->n_flex_regs);
+
+	if (IS_ERR(oa_config->flex_regs)) {
+		DRM_ERROR("Failed to create OA config for flex_regs\n");
+		err = PTR_ERR(oa_config->flex_regs);
+		goto flex_err;
+	}
+
+	err = create_dynamic_oa_sysfs_entry(dev_priv, oa_config);
+	if (err) {
+		DRM_ERROR("Failed to create sysfs entry for OA config\n");
+		goto sysfs_err;
+	}
+
+	oa_config->id = idr_alloc(&dev_priv->perf.metrics_idr,
+				  oa_config,
+				  dev_priv->perf.oa.n_builtin_sets + 1,
+				  0, GFP_KERNEL);
+
+	return oa_config->id;
+
+sysfs_err:
+	kfree(oa_config->flex_regs);
+flex_err:
+	kfree(oa_config->b_counter_regs);
+boolean_err:
+	kfree(oa_config->mux_regs);
+mux_err:
+uuid_err:
+	kfree(oa_config);
+
+	DRM_ERROR("Failed to add new OA config\n");
+	return err;
+}
 
 static struct ctl_table oa_table[] = {
 	{
@@ -1581,6 +1848,8 @@ void i915_perf_init(struct drm_device *dev)
 	INIT_LIST_HEAD(&dev_priv->perf.streams);
 	mutex_init(&dev_priv->perf.lock);
 	spin_lock_init(&dev_priv->perf.hook_lock);
+
+	idr_init(&dev_priv->perf.metrics_idr);
 
 	if (IS_HASWELL(dev)) {
 		dev_priv->perf.oa.ops.init_oa_buffer = gen7_init_oa_buffer;
