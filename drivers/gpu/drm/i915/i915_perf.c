@@ -1439,10 +1439,6 @@ static int read_properties_unlocked(struct drm_i915_private *dev_priv,
 			props->sample_flags |= SAMPLE_OA_REPORT;
 			break;
 		case DRM_I915_PERF_OA_METRICS_SET_PROP:
-			if (value == 0 || value > dev_priv->perf.oa.n_builtin_sets) {
-				DRM_ERROR("Unknown OA metric set ID");
-				return -EINVAL;
-			}
 			props->metrics_set = value;
 			break;
 		case DRM_I915_PERF_OA_FORMAT_PROP:
