@@ -2455,10 +2455,11 @@ static int read_properties_unlocked(struct drm_i915_private *dev_priv,
 			props->sample_flags |= SAMPLE_OA_SOURCE_INFO;
 			break;
 		case DRM_I915_PERF_RING_PROP: {
-				u8 ring_id =
-					(value & I915_EXEC_RING_MASK) - 1;
+				u8 ring_id = (value & I915_EXEC_RING_MASK) - 1;
+#warning "XXX: we should probably use an enum for the ring ID not overload the I915_EXEC_RING_ bits"
 				if (ring_id >= I915_NUM_RINGS)
 					return -EINVAL;
+#warning "XXX: this validation is only ok if we use an enum not a bitmask"
 
 				props->cs_mode = true;
 				props->ring_id = ring_id;
