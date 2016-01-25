@@ -132,6 +132,8 @@ struct perf_open_properties
  * Emit the commands to capture metrics, into the command stream. This function
  * can be called concurrently with the stream operations and doesn't require
  * perf mutex lock.
+ *
+ * XXX: the concurrency here probably means this does require locking.
  */
 
 void i915_perf_command_stream_hook(struct drm_i915_gem_request *req, u32 tag)
@@ -143,6 +145,7 @@ void i915_perf_command_stream_hook(struct drm_i915_gem_request *req, u32 tag)
 	if (!dev_priv->perf.initialized)
 		return;
 
+#warning "XXX: I think this probably needs to take the i915 perf lock in case a stream is just about to be closed/freed here"
 	list_for_each_entry(stream, &dev_priv->perf.streams, link) {
 		if (stream->enabled && (stream->ring_id == ring->id) &&
 				stream->command_stream_hook)
