@@ -967,18 +967,22 @@ static bool append_one_cs_sample(struct i915_perf_stream *stream,
 	enum intel_ring_id id = stream->ring_id;
 	struct sample_data data = { 0 };
 	u32 sample_flags = stream->sample_flags;
-	const u8 *report;
-	u32 sample_ts;
 
-	/*
-	 * Forward the periodic OA samples which have the timestamp lower
-	 * than timestamp of this sample, before forwarding this sample.
-	 * This ensures samples read by user are order acc. to their timestamps
-	 */
-	if ((id == RCS) && (sample_flags & SAMPLE_OA_REPORT)) {
-		report = dev_priv->perf.command_stream_buf[id].addr +
-				node->oa_offset;
-		sample_ts = *(u32 *)(report + 4);
+	if (sample_flags & SAMPLE_OA_REPORT) {
+		const u8 *report = dev_priv->perf.command_stream_buf[id].addr +
+				   node->oa_offset;
+		u32 sample_ts = *(u32 *)(report + 4);
+
+		BUG_ON(id != RCS);
+
+		data.report = report;
+
+		/*
+		 * Forward the periodic OA samples which have the timestamp
+		 * lower than timestamp of this sample, before forwarding this
+		 * sample.  This ensures samples read by user are order acc. to
+		 * their timestamps
+		 */
 		dev_priv->perf.oa.ops.read(stream, read_state, sample_ts);
 	}
 
@@ -1000,7 +1004,7 @@ static bool append_one_cs_sample(struct i915_perf_stream *stream,
 		 * timestamp collected via command stream.
 		 */
 #warning "FIXME: append_one_cs_sample: derive the timestamp from OA report"
-		if ((id == RCS) && (sample_flags & SAMPLE_OA_REPORT))
+		if (sample_flags & SAMPLE_OA_REPORT)
 			data.ts = 0;
 		else
 			data.ts = *(u64 *)
@@ -1011,9 +1015,6 @@ static bool append_one_cs_sample(struct i915_perf_stream *stream,
 	if (sample_flags & SAMPLE_MMIO)
 		data.mmio = dev_priv->perf.command_stream_buf[id].addr +
 				node->mmio_offset;
-
-	if (sample_flags & SAMPLE_OA_REPORT)
-		data.report = report;
 
 	append_sample(stream, read_state, &data);
 
