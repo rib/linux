@@ -197,13 +197,12 @@ static void insert_perf_entry(struct drm_i915_private *dev_priv,
 
 	if (stream->sample_flags & SAMPLE_OA_REPORT)
 		entry_size += dev_priv->perf.oa.oa_buffer.format_size;
-
-	/*
-	 * XXX: Since TS data can anyways be derived from OA report, so no need
-	 * to capture it for RCS ring, if capture oa data is called already.
-	 */
-	if ((sample_flags & SAMPLE_TS) &&
-			!((id == RCS) && (sample_flags & SAMPLE_OA_REPORT))) {
+	else if (sample_flags & SAMPLE_TS) {
+		/*
+		 * XXX: Since TS data can anyways be derived from OA report, so
+		 * no need to capture it for RCS ring, if capture oa data is
+		 * called already.
+		 */
 		entry_size += I915_PERF_TS_SAMPLE_SIZE;
 		sample_ts = true;
 	}
@@ -293,8 +292,7 @@ static int i915_perf_stream_capture_oa_report(struct drm_i915_gem_request *req,
 	int ret;
 
 	/* OA counters are only supported on the render ring */
-	if (ring->id != RCS)
-		return -EINVAL;
+	BUG_ON(ring->id != RCS);
 
 	if (i915.enable_execlists)
 		ret = intel_logical_ring_begin(req, 4);
@@ -505,10 +503,6 @@ static void i915_perf_stream_cs_hook(struct i915_perf_stream *stream,
 	struct i915_perf_cs_data_node *entry;
 	int ret = 0;
 
-	/* A preliminary check for restricting OA sample type to RCS */
-	if ((sample_flags & SAMPLE_OA_REPORT) && (id != RCS))
-		return;
-
 	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
 	if (entry == NULL) {
 		DRM_ERROR("alloc failed\n");
@@ -526,13 +520,12 @@ static void i915_perf_stream_cs_hook(struct i915_perf_stream *stream,
 		ret = i915_perf_stream_capture_oa_report(req, entry->oa_offset);
 		if (ret)
 			goto err;
-	}
-	/*
-	 * XXX: Since TS data can anyways be derived from OA report, so no need
-	 * to capture it for RCS ring, if capture oa data is called already.
-	 */
-	if ((sample_flags & SAMPLE_TS) &&
-			!((id == RCS) && (sample_flags & SAMPLE_OA_REPORT))) {
+	} else if (sample_flags & SAMPLE_TS) {
+		/*
+		 * XXX: Since TS data can anyways be derived from OA report, so
+		 * no need to capture it for RCS ring, if capture oa data is
+		 * called already.
+		 */
 		ret = i915_perf_stream_capture_ts_data(req, entry->ts_offset);
 		if (ret)
 			goto err;
