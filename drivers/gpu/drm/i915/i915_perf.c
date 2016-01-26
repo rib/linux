@@ -2475,22 +2475,6 @@ static int read_properties_unlocked(struct drm_i915_private *dev_priv,
 		uprop += 2;
 	}
 
-	/* Ctx Id can be sampled in HSW only through command streamer mode */
-	if (IS_HASWELL(dev_priv->dev) &&
-			(props->sample_flags &
-				(SAMPLE_CTX_ID|SAMPLE_PID|SAMPLE_TAG)) &&
-			!props->cs_mode)
-		return -EINVAL;
-
-	/* OA sample only supported on RCS */
-	if ((props->sample_flags & (SAMPLE_OA_REPORT|SAMPLE_OA_SOURCE_INFO)) &&
-		props->cs_mode && (props->ring_id != RCS))
-		return -EINVAL;
-
-	/* Atleast one of OA report, timestamp or mmio sample type present */
-	if (!(props->sample_flags & (SAMPLE_OA_REPORT|SAMPLE_TS|SAMPLE_MMIO)))
-		return -EINVAL;
-
 	return 0;
 }
 
