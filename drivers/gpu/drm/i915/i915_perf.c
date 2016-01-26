@@ -1665,6 +1665,13 @@ static int i915_perf_stream_init(struct i915_perf_stream *stream,
 		return -EBUSY;
 	}
 
+	/* Ctx Id can be sampled in HSW only through command streamer mode */
+	if (IS_HASWELL(dev_priv->dev) &&
+	    (props->sample_flags & SAMPLE_CTX_ID) && !props->cs_mode) {
+		DRM_ERROR("Context ID sampling only supported via command stream on Haswell");
+		return -EINVAL;
+	}
+
 	stream->sample_size = sizeof(struct drm_i915_perf_record_header);
 
 	if (require_oa_unit) {
