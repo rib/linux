@@ -2351,7 +2351,12 @@ static int copy_mmio_list(struct drm_i915_private *dev_priv,
 }
 
 /* Note we copy the properties from userspace without any locking to
- * avoid an awkward lockdep with mmap_sem */
+ * avoid an awkward lockdep with mmap_sem.
+ *
+ * Note this function only validates properties in isolation it doesn't
+ * validate that the combination of properties makes sense or that all
+ * properties necessary for a particular kind of stream have be set.
+ */
 static int read_properties_unlocked(struct drm_i915_private *dev_priv,
 				    u64 __user *uprops,
 				    u32 n_props,
