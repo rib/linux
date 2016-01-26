@@ -1687,6 +1687,13 @@ static int i915_perf_stream_init(struct i915_perf_stream *stream,
 			return -EINVAL;
 		}
 
+		if (props->ring_id != RCS) {
+			BUG_ON(props->cs_mode == false);
+			DRM_ERROR("Command stream OA metrics only available via Render CS\n");
+			return -EINVAL;
+		}
+		stream->ring_id = RCS;
+
 		if (!props->oa_format) {
 			DRM_ERROR("OA report format not specified\n");
 			return -EINVAL;
