@@ -1660,6 +1660,7 @@ static int i915_perf_stream_init(struct i915_perf_stream *stream,
 	 * counter reports and marshal to the appropriate client
 	 * we currently only allow exclusive access */
 	if (dev_priv->perf.exclusive_stream[id]) {
+#warning "we're now allowing one open stream per-ring - but before we only allowed one stream: is this definitely what we want"
 		DRM_ERROR("Stream: [%d] already in use\n", id);
 		return -EBUSY;
 	}
