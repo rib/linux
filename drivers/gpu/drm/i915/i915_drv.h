@@ -2044,6 +2044,8 @@ struct drm_i915_private {
 		struct mutex lock;
 		struct list_head streams;
 
+		struct idr metrics_idr;
+
 		spinlock_t hook_lock;
 
 		struct {
@@ -3324,6 +3326,8 @@ int i915_gem_context_setparam_ioctl(struct drm_device *dev, void *data,
 
 int i915_perf_open_ioctl(struct drm_device *dev, void *data,
 			 struct drm_file *file);
+int i915_perf_add_config_ioctl(struct drm_device *dev, void *data,
+			       struct drm_file *file);
 void i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
 				struct intel_context *context);
 void i915_oa_legacy_ctx_switch_notify(struct drm_i915_gem_request *req);
