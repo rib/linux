@@ -256,6 +256,12 @@ static int gen7_oa_read(struct i915_perf_stream *stream,
 			}
 		}
 
+		/* XXX: This register contains the OA tail pointer
+		 * which may be updated asynchronously while periodic
+		 * sampling is enabled so it's racy to
+		 * read-modify-write like we are here (esp after the
+		 * append/copy_to_user work above.) */
+#warning "TODO: double check the correct way to clear OASTATUS1 bits"
 		I915_WRITE(GEN7_OASTATUS1, oastatus1);
 	}
 
