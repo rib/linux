@@ -415,8 +415,20 @@ static void i915_oa_stream_destroy(struct i915_perf_stream *stream)
 
 	free_oa_buffer(dev_priv);
 
-	intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
-	intel_runtime_pm_put(dev_priv);
+	if (dev_priv->perf.oa.rc6_wa_obj) {
+		I915_WRITE(CTX_WA_PTR, 0x0);
+
+		i915_gem_object_ggtt_unpin(dev_priv->perf.oa.rc6_wa_obj);
+
+		mutex_lock(&dev_priv->dev->struct_mutex);
+		drm_gem_object_unreference(&dev_priv->perf.oa.rc6_wa_obj->base);
+		mutex_unlock(&dev_priv->dev->struct_mutex);
+
+		dev_priv->perf.oa.rc6_wa_obj = NULL;
+	} else {
+		intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
+		intel_runtime_pm_put(dev_priv);
+	}
 
 	dev_priv->perf.oa.exclusive_stream = NULL;
 }
@@ -833,6 +845,80 @@ static void i915_oa_stream_disable(struct i915_perf_stream *stream)
 		hrtimer_cancel(&dev_priv->perf.oa.poll_check_timer);
 }
 
+static int init_rc6_wa_bb(struct drm_i915_private *dev_priv)
+{
+	struct page *page;
+	uint32_t *batch;
+	int ret, index = 0, i, num_regs;
+
+	dev_priv->perf.oa.rc6_wa_obj = i915_gem_alloc_object(dev_priv->dev,
+							     PAGE_SIZE);
+	if (!dev_priv->perf.oa.rc6_wa_obj) {
+		DRM_DEBUG_DRIVER("failed to allocate rc6 wa bb\n");
+		return -ENOSPC;
+	}
+
+	ret = i915_gem_obj_ggtt_pin(dev_priv->perf.oa.rc6_wa_obj, PAGE_SIZE, 0);
+	if (ret) {
+		DRM_DEBUG_DRIVER("failed to pin rc6 wa bb\n");
+
+		mutex_lock(&dev_priv->dev->struct_mutex);
+		drm_gem_object_unreference(&dev_priv->perf.oa.rc6_wa_obj->base);
+		mutex_unlock(&dev_priv->dev->struct_mutex);
+
+		dev_priv->perf.oa.rc6_wa_obj = NULL;
+
+		return ret;
+	}
+
+	page = i915_gem_object_get_page(dev_priv->perf.oa.rc6_wa_obj, 0);
+	batch = kmap_atomic(page);
+
+	batch[index++] = MI_BATCH_BUFFER_START | MI_BATCH_GTT;
+	batch[index++] = MI_NOOP;
+	batch[index++] = MI_LOAD_REGISTER_IMM(1);
+	batch[index++] = GDT_CHICKEN_BITS;
+	batch[index++] = 0xA0;
+
+	for (i = 0; i < dev_priv->perf.oa.mux_regs_len; i++) {
+		// x <= 16 must hold with MI_LOAD_REGISTER_IMM(x)
+		if (i % 16 == 0) {
+			num_regs = min(16, dev_priv->perf.oa.mux_regs_len - i);
+			batch[index++] = MI_NOOP;
+			batch[index++] = MI_LOAD_REGISTER_IMM(num_regs);
+		}
+
+		batch[index++] = dev_priv->perf.oa.mux_regs[i].addr;
+		batch[index++] = dev_priv->perf.oa.mux_regs[i].value;
+	}
+
+	batch[index++] = MI_NOOP;
+	batch[index++] = MI_LOAD_REGISTER_IMM(1);
+	batch[index++] = GDT_CHICKEN_BITS;
+	batch[index++] = 0x80;
+
+	for (i = 0; i < dev_priv->perf.oa.b_counter_regs_len; i++) {
+		if (i % 16 == 0) {
+			num_regs = min(16, dev_priv->perf.oa.b_counter_regs_len - i);
+			batch[index++] = MI_NOOP;
+			batch[index++] = MI_LOAD_REGISTER_IMM(num_regs);
+		}
+
+		batch[index++] = dev_priv->perf.oa.b_counter_regs[i].addr;
+		batch[index++] = dev_priv->perf.oa.b_counter_regs[i].value;
+	}
+
+	batch[index++] = MI_BATCH_BUFFER_END;
+
+	kunmap_atomic(batch);
+
+	I915_WRITE(CTX_WA_PTR,
+		   i915_gem_obj_ggtt_offset(dev_priv->perf.oa.rc6_wa_obj) |
+		   0x1);
+
+	return 0;
+}
+
 static int i915_oa_stream_init(struct i915_perf_stream *stream,
 			       struct drm_i915_perf_open_param *param,
 			       struct perf_open_properties *props)
@@ -909,11 +995,25 @@ static int i915_oa_stream_init(struct i915_perf_stream *stream,
 	 *
 	 *   In our case we are expected that taking pm + FORCEWAKE
 	 *   references will effectively disable RC6.
+	 *
+	 *   For BDW+, RC6 + OA is not plagued by this issue, so we instead
+	 *   try to leave RC6 enabled. One caveat though is that we now need
+	 *   to restore the NOA MUX configuration upon exiting RC6.
 	 */
 	intel_runtime_pm_get(dev_priv);
 	intel_uncore_forcewake_get(dev_priv, FORCEWAKE_ALL);
 
 	dev_priv->perf.oa.ops.enable_metric_set(dev_priv);
+
+	if (IS_BROADWELL(dev_priv->dev)) {
+		if (init_rc6_wa_bb(dev_priv)) {
+			DRM_DEBUG_DRIVER("Failed to setup RC6 WA BB."
+					 " Leaving RC6 disabled.\n");
+		} else {
+			intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
+			intel_runtime_pm_put(dev_priv);
+		}
+	}
 
 	stream->destroy = i915_oa_stream_destroy;
 	stream->enable = i915_oa_stream_enable;
@@ -1658,6 +1758,8 @@ void i915_perf_init(struct drm_device *dev)
 	dev_priv->perf.sysctl_header = register_sysctl_table(dev_root);
 
 	dev_priv->perf.initialized = true;
+
+	dev_priv->perf.oa.rc6_wa_obj = NULL;
 
 	return;
 
