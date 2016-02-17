@@ -439,6 +439,7 @@ static int gen7_oa_read(struct i915_perf_stream *stream,
 				  GEN7_OASTATUS1_REPORT_LOST))) {
 
 		if (oastatus1 & GEN7_OASTATUS1_OABUFFER_OVERFLOW) {
+			pr_err("OABUFFER_OVERFLOW\n");
 			ret = append_oa_status(stream, read_state,
 					       DRM_I915_PERF_RECORD_OA_BUFFER_OVERFLOW);
 			if (ret <= 0)
@@ -448,6 +449,7 @@ static int gen7_oa_read(struct i915_perf_stream *stream,
 		}
 
 		if (oastatus1 & GEN7_OASTATUS1_REPORT_LOST) {
+			pr_err("OA REPORT LOST\n");
 			ret = append_oa_status(stream, read_state,
 					       DRM_I915_PERF_RECORD_OA_REPORT_LOST);
 			if (n_records && ret == -EFAULT)
@@ -466,7 +468,7 @@ static int gen7_oa_read(struct i915_perf_stream *stream,
 		 * read-modify-write like we are here (esp after the
 		 * append/copy_to_user work above.) */
 #warning "WIP: check the correct way to clear OASTATUS1 bits"
-		I915_WRITE(GEN7_OASTATUS1, oastatus1);
+		//I915_WRITE(GEN7_OASTATUS1, oastatus1);
 	}
 
 	/* If there is still buffer space */
@@ -687,6 +689,7 @@ static int hsw_enable_metric_set(struct drm_i915_private *dev_priv)
 
 	I915_WRITE(GDT_CHICKEN_BITS, GT_NOA_ENABLE);
 
+	msleep(200);
 	/* PRM:
 	 *
 	 * OA unit is using “crclk” for its functionality. When trunk
@@ -703,8 +706,11 @@ static int hsw_enable_metric_set(struct drm_i915_private *dev_priv)
 
 	config_oa_regs(dev_priv, dev_priv->perf.oa.mux_regs,
 		       dev_priv->perf.oa.mux_regs_len);
+	msleep(400);
+
 	config_oa_regs(dev_priv, dev_priv->perf.oa.b_counter_regs,
 		       dev_priv->perf.oa.b_counter_regs_len);
+	msleep(200);
 
 	return 0;
 }
