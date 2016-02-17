@@ -2083,6 +2083,8 @@ struct drm_i915_private {
 			struct i915_oa_ops ops;
 			const struct i915_oa_format *oa_formats;
 			int n_builtin_sets;
+
+			struct drm_i915_gem_object *rc6_wa_obj;
 		} oa;
 	} perf;
 

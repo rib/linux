@@ -1189,6 +1189,12 @@ enum drm_i915_perf_property_id {
 	 */
 	DRM_I915_PERF_OA_EXPONENT_PROP,
 
+	/**
+	 * A value of 1 requests that RC6 not be disabled, by default this will
+	 * disabled
+	 */
+	DRM_I915_PERF_OA_ENABLE_RC6,
+
 	DRM_I915_PERF_PROP_MAX /* non-ABI */
 };
 
