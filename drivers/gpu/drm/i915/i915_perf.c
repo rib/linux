@@ -93,6 +93,7 @@ struct perf_open_properties
 	int oa_format;
 	bool oa_periodic;
 	u32 oa_period_exponent;
+	bool enable_rc6;
 };
 
 static bool gen8_oa_buffer_is_empty(struct drm_i915_private *dev_priv)
@@ -898,6 +899,8 @@ static int i915_oa_stream_init(struct i915_perf_stream *stream,
 
 	dev_priv->perf.oa.exclusive_stream = stream;
 
+	dev_priv->perf.oa.enable_rc6 = props->enable_rc6;
+
 	/* PRM - observability performance counters:
 	 *
 	 *   OACONTROL, performance counter enable, note:
@@ -1479,6 +1482,9 @@ static int read_properties_unlocked(struct drm_i915_private *dev_priv,
 
 			props->oa_periodic = true;
 			props->oa_period_exponent = value;
+			break;
+		case DRM_I915_PERF_OA_ENABLE_RC6:
+			props->enable_rc6 = true;
 			break;
 		case DRM_I915_PERF_PROP_MAX:
 			BUG();
