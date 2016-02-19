@@ -416,8 +416,10 @@ static void i915_oa_stream_destroy(struct i915_perf_stream *stream)
 
 	free_oa_buffer(dev_priv);
 
-	intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
-	intel_runtime_pm_put(dev_priv);
+	if (!dev_priv->perf.oa.enable_rc6) {
+		intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
+		intel_runtime_pm_put(dev_priv);
+	}
 
 	dev_priv->perf.oa.exclusive_stream = NULL;
 }
@@ -834,6 +836,119 @@ static void i915_oa_stream_disable(struct i915_perf_stream *stream)
 		hrtimer_cancel(&dev_priv->perf.oa.poll_check_timer);
 }
 
+struct drm_i915_gem_object *
+i915_oa_ctx_wa_obj(struct drm_i915_private *dev_priv)
+{
+	struct drm_i915_gem_object *ctx_wa_obj =
+		dev_priv->perf.oa.ctx_wa_obj_buf[dev_priv->perf.oa.ctx_wa_idx];
+
+	if (dev_priv->perf.oa.dirty_wa_obj) {
+		dev_priv->perf.oa.dirty_wa_obj = false;
+		dev_priv->perf.oa.ctx_wa_idx = !dev_priv->perf.oa.ctx_wa_idx;
+	}
+
+	return ctx_wa_obj;
+}
+
+static int init_ctx_wa_obj_buf(struct drm_i915_private *dev_priv)
+{
+	struct intel_engine_cs *ring = &dev_priv->ring[RCS];
+	struct page *page = i915_gem_object_get_page(ring->wa_ctx.obj, 0);
+	uint32_t *data = kmap_atomic(page);
+	int ret;
+
+	dev_priv->perf.oa.ctx_wa_obj_buf[0] =
+		i915_gem_object_create_from_data(dev_priv->dev, data,
+						 PAGE_SIZE);
+	kunmap_atomic(data);
+
+	if (!dev_priv->perf.oa.ctx_wa_obj_buf[0]) {
+		DRM_DEBUG_DRIVER("failed to allocate rc6 wa bb\n");
+		return -ENOMEM;
+	}
+
+	ret = i915_gem_obj_ggtt_pin(dev_priv->perf.oa.ctx_wa_obj_buf[0],
+				    PAGE_SIZE, 0);
+	if (ret) {
+		DRM_DEBUG_DRIVER("failed to pin rc6 wa bb\n");
+
+		mutex_lock(&dev_priv->dev->struct_mutex);
+		drm_gem_object_unreference(&dev_priv->perf.oa.ctx_wa_obj_buf[0]->base);
+		mutex_unlock(&dev_priv->dev->struct_mutex);
+
+		dev_priv->perf.oa.ctx_wa_obj_buf[0] = NULL;
+
+		return ret;
+	}
+
+	dev_priv->perf.oa.ctx_wa_obj_buf[1] = ring->wa_ctx.obj;
+
+	return 0;
+}
+
+static int init_rc6_wa_bb(struct drm_i915_private *dev_priv)
+{
+	struct page *page;
+	uint32_t *batch;
+	int ret, index, i, num_regs;
+	struct intel_engine_cs *ring = &dev_priv->ring[RCS];
+	struct drm_i915_gem_object *ctx_wa_obj;
+
+	if (!dev_priv->perf.oa.ctx_wa_obj_buf[0]) {
+		ret = init_ctx_wa_obj_buf(dev_priv);
+		if (ret)
+			return ret;
+	}
+
+	dev_priv->perf.oa.dirty_wa_obj = true;
+
+	ctx_wa_obj = dev_priv->perf.oa.ctx_wa_obj_buf[dev_priv->perf.oa.ctx_wa_idx];
+
+	page = i915_gem_object_get_page(ctx_wa_obj, 0);
+	batch = kmap_atomic(page);
+
+	index = ring->wa_ctx.per_ctx_rc6.offset;
+
+	batch[index++] = MI_NOOP;
+	batch[index++] = MI_LOAD_REGISTER_IMM(1);
+	batch[index++] = GDT_CHICKEN_BITS;
+	batch[index++] = 0xA0;
+
+	for (i = 0; i < dev_priv->perf.oa.mux_regs_len; i++) {
+		/* x <= 16 must hold with MI_LOAD_REGISTER_IMM(x) */
+		if (i % 16 == 0) {
+			num_regs = min(16, dev_priv->perf.oa.mux_regs_len - i);
+			batch[index++] = MI_NOOP;
+			batch[index++] = MI_LOAD_REGISTER_IMM(num_regs);
+		}
+
+		batch[index++] = dev_priv->perf.oa.mux_regs[i].addr;
+		batch[index++] = dev_priv->perf.oa.mux_regs[i].value;
+	}
+
+	batch[index++] = MI_NOOP;
+	batch[index++] = MI_LOAD_REGISTER_IMM(1);
+	batch[index++] = GDT_CHICKEN_BITS;
+	batch[index++] = 0x80;
+
+	for (i = 0; i < dev_priv->perf.oa.b_counter_regs_len; i++) {
+		if (i % 16 == 0) {
+			num_regs = min(16, dev_priv->perf.oa.b_counter_regs_len - i);
+			batch[index++] = MI_NOOP;
+			batch[index++] = MI_LOAD_REGISTER_IMM(num_regs);
+		}
+
+		batch[index++] = dev_priv->perf.oa.b_counter_regs[i].addr;
+		batch[index++] = dev_priv->perf.oa.b_counter_regs[i].value;
+	}
+
+	batch[index++] = MI_BATCH_BUFFER_END;
+
+	kunmap_atomic(batch);
+
+	return 0;
+}
+
 static int i915_oa_stream_init(struct i915_perf_stream *stream,
 			       struct drm_i915_perf_open_param *param,
 			       struct perf_open_properties *props)
@@ -912,11 +1027,37 @@ static int i915_oa_stream_init(struct i915_perf_stream *stream,
 	 *
 	 *   In our case we are expected that taking pm + FORCEWAKE
 	 *   references will effectively disable RC6.
+	 *
+	 *   For BDW+, RC6 + OA is not plagued by this issue, so we instead
+	 *   try to leave RC6 enabled. One caveat though is that we now need
+	 *   to restore the NOA MUX configuration upon exiting RC6.
 	 */
-	intel_runtime_pm_get(dev_priv);
-	intel_uncore_forcewake_get(dev_priv, FORCEWAKE_ALL);
+
+	/* We must disable RC6 until we are able to correctly setup the RC6 WA
+	 * BB, if requested, otherwise we could potentially loose some OA state
+	 * which is not automatically restored as part of the OA power context */
+	intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
+	intel_runtime_pm_put(dev_priv);
 
 	dev_priv->perf.oa.ops.enable_metric_set(dev_priv);
+
+	if (props->enable_rc6) {
+		if (IS_BROADWELL(dev_priv->dev)) {
+			ret = init_rc6_wa_bb(dev_priv);
+			if (ret)
+				DRM_ERROR("Failed to enable RC6 with OA\n");
+		} else {
+			DRM_ERROR("OA with RC6 enabled is not supported on this"
+				  " platform\n");
+			ret = -EINVAL;
+		}
+
+		intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
+		intel_runtime_pm_put(dev_priv);
+
+		if (ret)
+			return ret;
+	}
 
 	stream->destroy = i915_oa_stream_destroy;
 	stream->enable = i915_oa_stream_enable;
@@ -1664,6 +1805,10 @@ void i915_perf_init(struct drm_device *dev)
 	dev_priv->perf.sysctl_header = register_sysctl_table(dev_root);
 
 	dev_priv->perf.initialized = true;
+
+	dev_priv->perf.oa.ctx_wa_obj_buf[0] = NULL;
+	dev_priv->perf.oa.ctx_wa_idx = 0;
+	dev_priv->perf.oa.dirty_wa_obj = false;
 
 	return;
 

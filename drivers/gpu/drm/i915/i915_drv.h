@@ -2085,6 +2085,9 @@ struct drm_i915_private {
 			int n_builtin_sets;
 
 			bool enable_rc6;
+			struct drm_i915_gem_object *ctx_wa_obj_buf[2];
+			int ctx_wa_idx;
+			bool dirty_wa_obj;
 		} oa;
 	} perf;
 
@@ -3330,6 +3333,7 @@ void i915_oa_context_pin_notify(struct drm_i915_private *dev_priv,
 				struct intel_context *context);
 void i915_oa_legacy_ctx_switch_notify(struct drm_i915_gem_request *req);
 void i915_oa_update_reg_state(struct intel_engine_cs *ring, uint32_t *reg_state);
+struct drm_i915_gem_object *i915_oa_ctx_wa_obj(struct drm_i915_private *dev_priv);
 
 /* i915_gem_evict.c */
 int __must_check i915_gem_evict_something(struct drm_device *dev,
