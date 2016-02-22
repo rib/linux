@@ -139,7 +139,8 @@ struct  i915_ctx_workarounds {
 	struct i915_wa_ctx_bb {
 		u32 offset;
 		u32 size;
-	} indirect_ctx, per_ctx;
+	} indirect_ctx, per_ctx, per_ctx_rc6;
+
 	struct drm_i915_gem_object *obj;
 };
 

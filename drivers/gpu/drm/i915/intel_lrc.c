@@ -1286,8 +1286,6 @@ static int gen8_init_indirectctx_bb(struct intel_engine_cs *ring,
  *
  *   The number of DWORDS written are returned using this field.
  *
- *  This batch is terminated with MI_BATCH_BUFFER_END and so we need not add padding
- *  to align it with cacheline as padding after MI_BATCH_BUFFER_END is redundant.
  */
 static int gen8_init_perctx_bb(struct intel_engine_cs *ring,
 			       struct i915_wa_ctx_bb *wa_ctx,
@@ -1299,7 +1297,9 @@ static int gen8_init_perctx_bb(struct intel_engine_cs *ring,
 	/* WaDisableCtxRestoreArbitration:bdw,chv */
 	wa_ctx_emit(batch, index, MI_ARB_ON_OFF | MI_ARB_ENABLE);
 
-	wa_ctx_emit(batch, index, MI_BATCH_BUFFER_END);
+	/* Pad to end of cacheline */
+	while (index % CACHELINE_DWORDS)
+		wa_ctx_emit(batch, index, MI_NOOP);
 
 	return wa_ctx_end(wa_ctx, *offset = index, 1);
 }
@@ -1353,6 +1353,33 @@ static int gen9_init_perctx_bb(struct intel_engine_cs *ring,
 	if ((IS_SKYLAKE(dev) && (INTEL_REVID(dev) <= SKL_REVID_D0)) ||
 	    (IS_BROXTON(dev) && (INTEL_REVID(dev) == BXT_REVID_A0)))
 		wa_ctx_emit(batch, index, MI_ARB_ON_OFF | MI_ARB_ENABLE);
+
+	/* Pad to end of cacheline */
+	while (index % CACHELINE_DWORDS)
+		wa_ctx_emit(batch, index, MI_NOOP);
+
+	return wa_ctx_end(wa_ctx, *offset = index, 1);
+}
+
+
+/*
+ * This batch is started immediately after per_ctx batch. Since we ensure
+ * that per_ctx ends on a cacheline this batch is aligned automatically.
+ *
+ * This batch is a placeholder which we can potentially later use to the
+ * restore the NOA MUX configuration, the size and contents of which we do not
+ * know until we are able to configure the OA unit.
+ *
+ * This batch is terminated with MI_BATCH_BUFFER_END and so we need not add
+ * padding to align it with cacheline as padding after MI_BATCH_BUFFER_END is
+ * redundant
+ */
+static int init_oa_rc6_wa_bb(struct intel_engine_cs *ring,
+			     struct i915_wa_ctx_bb *wa_ctx,
+			     uint32_t *const batch,
+			     uint32_t *offset)
+{
+	uint32_t index = wa_ctx_start(wa_ctx, *offset, CACHELINE_DWORDS);
 
 	wa_ctx_emit(batch, index, MI_BATCH_BUFFER_END);
 
@@ -1436,6 +1463,7 @@ static int intel_init_workaround_bb(struct intel_engine_cs *ring)
 					  &offset);
 		if (ret)
 			goto out;
+
 	} else if (INTEL_INFO(ring->dev)->gen == 9) {
 		ret = gen9_init_indirectctx_bb(ring,
 					       &wa_ctx->indirect_ctx,
@@ -1451,6 +1479,11 @@ static int intel_init_workaround_bb(struct intel_engine_cs *ring)
 		if (ret)
 			goto out;
 	}
+
+	ret = init_oa_rc6_wa_bb(ring,
+				&wa_ctx->per_ctx_rc6,
+				batch,
+				&offset);
 
 out:
 	kunmap_atomic(batch);
@@ -2305,7 +2338,25 @@ populate_lr_context(struct intel_context *ctx, struct drm_i915_gem_object *ctx_o
 		reg_state[CTX_RCS_INDIRECT_CTX_OFFSET+1] = 0;
 		if (ring->wa_ctx.obj) {
 			struct i915_ctx_workarounds *wa_ctx = &ring->wa_ctx;
-			uint32_t ggtt_offset = i915_gem_obj_ggtt_offset(wa_ctx->obj);
+			struct drm_i915_gem_object *wa_ctx_obj = wa_ctx->obj;
+			uint32_t ggtt_offset;
+
+			/* To support RC6 while capturing metrics with the OA
+			 * unit, we need to restore the NOA Mux configuration
+			 * upon existing RC6, while using the CTX_WA_PTR would
+			 * be a better solution here, there is reportadly HW bug
+			 * on SKL+ where the batch is not always executed, so
+			 * using the per-ctx batch seems to be next best solution
+			 *
+			 * Given that we need to able to update the per-ctx
+			 * batch on the fly with the NOA Mux config, we
+			 * double-buffer the batch, as the batch could
+			 * potentially still be in use by a restore in progress
+			 * */
+			if (dev_priv->perf.oa.enable_rc6)
+				wa_ctx_obj = i915_oa_ctx_wa_obj(dev_priv);
+
+			ggtt_offset = i915_gem_obj_ggtt_offset(wa_ctx_obj);
 
 			reg_state[CTX_RCS_INDIRECT_CTX+1] =
 				(ggtt_offset + wa_ctx->indirect_ctx.offset * sizeof(uint32_t)) |
