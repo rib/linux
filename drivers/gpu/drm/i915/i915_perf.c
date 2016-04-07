@@ -36,9 +36,10 @@
 #define OA_BUFFER_SIZE	     SZ_16M
 #define OA_TAKEN(tail, head) ((tail - head) & (OA_BUFFER_SIZE - 1))
 
-/* frequency for forwarding samples from OA to perf buffer */
+/* frequency for checking whether the OA unit has written new reports to the
+ * circular OA buffer... */
 #define POLL_FREQUENCY 200
-#define POLL_PERIOD max_t(u64, 10000, NSEC_PER_SEC / POLL_FREQUENCY)
+#define POLL_PERIOD (NSEC_PER_SEC / POLL_FREQUENCY)
 
 static u32 i915_perf_stream_paranoid = true;
 
