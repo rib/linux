@@ -2058,6 +2058,8 @@ struct drm_i915_private {
 
 			u32 specific_ctx_id;
 
+			int n_wake_ups;
+			bool print_taken_debug;
 			struct hrtimer poll_check_timer;
 			wait_queue_head_t poll_wq;
 
