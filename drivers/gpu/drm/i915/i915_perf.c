@@ -141,22 +141,8 @@ static bool gen7_oa_buffer_is_empty_fop_unlocked(struct drm_i915_private *dev_pr
 	u32 oastatus1 = I915_READ(GEN7_OASTATUS1);
 	u32 head = oastatus2 & GEN7_OASTATUS2_HEAD_MASK;
 	u32 tail = oastatus1 & GEN7_OASTATUS1_TAIL_MASK;
-	u32 taken = OA_TAKEN(tail, head);
 
-	pr_err("OA head=%u, tail=%u, taken = %d\n", head, tail, taken);
-
-	return taken < report_size;
-}
-
-static int n_oa_reports_pending(struct drm_i915_private *dev_priv)
-{
-	int report_size = dev_priv->perf.oa.oa_buffer.format_size;
-	u32 oastatus2 = I915_READ(GEN7_OASTATUS2);
-	u32 oastatus1 = I915_READ(GEN7_OASTATUS1);
-	u32 head = oastatus2 & GEN7_OASTATUS2_HEAD_MASK;
-	u32 tail = oastatus1 & GEN7_OASTATUS1_TAIL_MASK;
-
-	return OA_TAKEN(tail, head) / report_size;
+	return OA_TAKEN(tail, head) < report_size;
 }
 
 /**
@@ -176,7 +162,6 @@ static int append_oa_status(struct i915_perf_stream *stream,
 
 	read_state->buf += header.size;
 	read_state->read += header.size;
-	pr_err("appended oa status = %d\n", type);
 
 	return 0;
 }
@@ -412,9 +397,6 @@ static int gen7_append_oa_reports(struct i915_perf_stream *stream,
 	 */
 	head = *head_ptr - dev_priv->perf.oa.oa_buffer.gtt_offset;
 	tail -= dev_priv->perf.oa.oa_buffer.gtt_offset;
-
-	pr_err("APPENDING: OA head=%u, tail=%u, taken = %d\n", head, tail,
-	       OA_TAKEN(tail, head));
 
 	/* The OA unit is expected to wrap the tail pointer according to the OA
 	 * buffer size.
@@ -1416,28 +1398,14 @@ static ssize_t i915_perf_read(struct file *file,
 		 * as the head/tail pointers indicate.
 		 */
 		for (ret = -EAGAIN; ret == -EAGAIN; usleep_range(500, 1000)) {
-			if (dev_priv->perf.oa.ops.oa_buffer_is_empty(dev_priv)) {
-				dev_priv->perf.oa.n_wake_ups = 0;
-
-				ret = stream->wait_unlocked(stream);
-				if (ret)
-					return ret;
-
-				if (dev_priv->perf.oa.n_wake_ups == 0)
-					pr_err("unknown wq wake up trigger\n");
-			} else {
-				pr_err("already %u pending OA reports\n",
-				       n_oa_reports_pending(dev_priv));
-			}
+			ret = stream->wait_unlocked(stream);
+			if (ret)
+				return ret;
 
 			mutex_lock(&dev_priv->perf.lock);
 			ret = i915_perf_read_locked(stream, file,
 						    buf, count, ppos);
 			mutex_unlock(&dev_priv->perf.lock);
-
-			if (!dev_priv->perf.oa.ops.oa_buffer_is_empty(dev_priv))
-				pr_err("only partial read; %u OA reports left\n",
-				       n_oa_reports_pending(dev_priv));
 		}
 	} else {
 		mutex_lock(&dev_priv->perf.lock);
@@ -1454,10 +1422,8 @@ static enum hrtimer_restart oa_poll_check_timer_cb(struct hrtimer *hrtimer)
 		container_of(hrtimer, typeof(*dev_priv),
 			     perf.oa.poll_check_timer);
 
-	if (!dev_priv->perf.oa.ops.oa_buffer_is_empty(dev_priv)) {
-		dev_priv->perf.oa.n_wake_ups++;
+	if (!dev_priv->perf.oa.ops.oa_buffer_is_empty(dev_priv))
 		wake_up(&dev_priv->perf.oa.poll_wq);
-	}
 
 	hrtimer_forward_now(hrtimer, ns_to_ktime(POLL_PERIOD));
 
