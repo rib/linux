@@ -33,8 +33,8 @@
 #include "i915_oa_skl.h"
 
 /* Must be a power of two */
-#define OA_BUFFER_SIZE	     SZ_16M
-#define OA_TAKEN(tail, head) ((tail - head) & (OA_BUFFER_SIZE - 1))
+#define OA_BUFFER_SIZE		SZ_16M
+#define OA_TAKEN(tail, head)	((tail - head) & (OA_BUFFER_SIZE - 1))
 
 /* frequency for checking whether the OA unit has written new reports to the
  * circular OA buffer... */
