@@ -414,7 +414,10 @@ static int gen7_append_oa_reports(struct i915_perf_stream *stream,
 		return -EAGAIN;
 	}
 
-	while ((taken = OA_TAKEN(tail, head))) {
+	for (/* skip */;
+	     (taken = OA_TAKEN(tail, head));
+	     head = (head + report_size) & mask)
+	{
 		/* The tail increases in 64 byte increments, not in
 		 * format_size steps.
 		 */
@@ -437,10 +440,13 @@ static int gen7_append_oa_reports(struct i915_perf_stream *stream,
 			 * the tail pointer which can be caught by first
 			 * checking that a report timestamp has been written.
 			 */
-			if (report32[1] == 0) {
+			if (report32[1] == 0 && taken == report_size ) {
 				DRM_ERROR("Spurious OA report timestamp == 0: waiting for memory write to catch up with tail\n");
 				ret = -EAGAIN;
 				break;
+			} else if (report32[1] == 0) {
+				DRM_ERROR("Spurious OA report timestamp == 0: skipping\n");
+				continue;
 			}
 
 			ret = append_oa_sample(stream, read_state, report);
@@ -454,9 +460,6 @@ static int gen7_append_oa_reports(struct i915_perf_stream *stream,
 			 */
 			report32[1] = 0;
 		}
-
-		head += report_size;
-		head &= mask;
 	}
 
 	*head_ptr = dev_priv->perf.oa.oa_buffer.gtt_offset + head;
