@@ -103,10 +103,16 @@ struct perf_open_properties {
 	u32 oa_period_exponent;
 };
 
-/* XXX: for it to be safe to call without the perf lock we're assuming that
- * this is only called while the stream can't be closed (i.e. during a file
- * operation other than release) and therefore the global OA configuration
- * can't be modified.
+/* NB: This is either called via fops or the poll check hrtimer (atomic ctx)
+ *
+ * It's safe to read OA config state here unlocked, assuming that this is only
+ * called while the stream is enabled, while the global OA configuration can't
+ * be modified.
+ *
+ * Note: we don't lock around the head/tail reads even though there's the slim
+ * possibility of read() fop errors forcing a re-init of the OA buffer
+ * pointers.  A race here could result in a false positive !empty status which
+ * is acceptable.
  */
 static bool gen8_oa_buffer_is_empty_fop_unlocked(struct drm_i915_private *dev_priv)
 {
@@ -117,10 +123,16 @@ static bool gen8_oa_buffer_is_empty_fop_unlocked(struct drm_i915_private *dev_pr
 	return OA_TAKEN(tail, head) < report_size;
 }
 
-/* XXX: for it to be safe to call without the perf lock we're assuming that
- * this is only called while the stream can't be closed (i.e. during a file
- * operation other than release) and therefore the global OA configuration
- * can't be modified.
+/* NB: This is either called via fops or the poll check hrtimer (atomic ctx)
+ *
+ * It's safe to read OA config state here unlocked, assuming that this is only
+ * called while the stream is enabled, while the global OA configuration can't
+ * be modified.
+ *
+ * Note: we don't lock around the head/tail reads even though there's the slim
+ * possibility of read() fop errors forcing a re-init of the OA buffer
+ * pointers.  A race here could result in a false positive !empty status which
+ * is acceptable.
  */
 static bool gen7_oa_buffer_is_empty_fop_unlocked(struct drm_i915_private *dev_priv)
 {
@@ -232,7 +244,7 @@ static int gen8_append_oa_reports(struct i915_perf_stream *stream,
 			  "i915: Misaligned OA head pointer");
 
 		if (dev_priv->perf.oa.exclusive_stream->enabled) {
-			u8 *report = oa_buf_base + (head & mask);
+			u8 *report = oa_buf_base + head;
 			u32 ctx_id = *(u32 *)(report + 8);
 
 			if (i915.enable_execlists) {
@@ -280,6 +292,7 @@ static int gen8_append_oa_reports(struct i915_perf_stream *stream,
 		}
 
 		head += report_size;
+		head &= mask;
 	}
 
 	*head_ptr = dev_priv->perf.oa.oa_buffer.gtt_offset + head;
@@ -316,13 +329,22 @@ static int gen8_oa_read(struct i915_perf_stream *stream,
 
 		if (oastatus & GEN8_OASTATUS_OABUFFER_OVERFLOW) {
 			ret = append_oa_status(stream, read_state,
-					       DRM_I915_PERF_RECORD_OA_BUFFER_OVERFLOW);
+					       DRM_I915_PERF_RECORD_OA_BUFFER_LOST);
 			if (ret)
 				return ret;
+
+			/* Since we can safely clear the status register on
+			 * gen8 it should be enough to update _is_empty() to
+			 * also check this status (with higher precedence than
+			 * OA_TAKEN()) and just before we start copying data we
+			 * can derive a head pointer that leaves a safe guard
+			 * band while appending reports.
+			 */
+#warning "gen8: should _OABUFFER_OVERFLOW result in a OA reset, consistent with gen7?"
 			oastatus &= ~GEN8_OASTATUS_OABUFFER_OVERFLOW;
 		}
 
-		if (ret == 0 && oastatus & GEN8_OASTATUS_REPORT_LOST) {
+		if (oastatus & GEN8_OASTATUS_REPORT_LOST) {
 			ret = append_oa_status(stream, read_state,
 					       DRM_I915_PERF_RECORD_OA_REPORT_LOST);
 			if (ret == 0)
@@ -369,13 +391,28 @@ static int gen7_append_oa_reports(struct i915_perf_stream *stream,
 	u32 taken;
 	int ret = 0;
 
+	/* NB: Gen circular buffers are consistently in-consistent by naming
+	 * the producer pointers 'tail' and consumer pointers 'head' while the
+	 * opposite terms seem more common in computer science.
+	 */
 	head = *head_ptr - dev_priv->perf.oa.oa_buffer.gtt_offset;
 	tail -= dev_priv->perf.oa.oa_buffer.gtt_offset;
 
-	/* Note: the gpu doesn't wrap the tail according to the OA buffer size
-	 * so when we need to make sure our head/tail values are in-bounds we
-	 * use the above mask.
+	/* The OA unit is expected to wrap the tail pointer according to the OA
+	 * buffer size.
+	 *
+	 * We should never write a misaligned head pointer so don't expect
+	 * to read one back.
 	 */
+	if (tail > OA_BUFFER_SIZE || head > OA_BUFFER_SIZE ||
+	    head % report_size) {
+		DRM_ERROR("Inconsistent OA buffer pointer (head = %u, tail = %u): force restart",
+			  head, tail);
+		dev_priv->perf.oa.ops.oa_disable(dev_priv);
+		dev_priv->perf.oa.ops.oa_enable(dev_priv);
+		*head_ptr = I915_READ(GEN7_OASTATUS2) & GEN7_OASTATUS2_HEAD_MASK;
+		return -EAGAIN;
+	}
 
 	while ((taken = OA_TAKEN(tail, head))) {
 		/* The tail increases in 64 byte increments, not in
@@ -388,11 +425,11 @@ static int gen7_append_oa_reports(struct i915_perf_stream *stream,
 		 * size so we never expect to see a report split
 		 * between the beginning and end of the buffer...
 		 */
-		WARN_ONCE((OA_BUFFER_SIZE - (head & mask)) < report_size,
+		WARN_ONCE((OA_BUFFER_SIZE - head) < report_size,
 			  "i915: Misaligned OA head pointer");
 
 		if (dev_priv->perf.oa.exclusive_stream->enabled) {
-			u8 *report = oa_buf_base + (head & mask);
+			u8 *report = oa_buf_base + head;
 			u32 *report32 = (void *)report;
 
 			/* There sometimes seems to be a lack of synchronization
@@ -419,6 +456,7 @@ static int gen7_append_oa_reports(struct i915_perf_stream *stream,
 		}
 
 		head += report_size;
+		head &= mask;
 	}
 
 	*head_ptr = dev_priv->perf.oa.oa_buffer.gtt_offset + head;
@@ -453,34 +491,55 @@ static int gen7_oa_read(struct i915_perf_stream *stream,
 	head = oastatus2 & GEN7_OASTATUS2_HEAD_MASK;
 	tail = oastatus1 & GEN7_OASTATUS1_TAIL_MASK;
 
-	/* XXX: On Haswell we don't have a safe way to clear these
-	 * status bits while periodic sampling is enabled (while
-	 * the tail pointer is being updated asynchronously) so only
-	 * append one record for each.
+	/* XXX: On Haswell we don't have a safe way to clear oastatus1
+	 * bits while the OA unit is enabled (while the tail pointer
+	 * may be updated asynchronously) so we ignore status bits
+	 * that have already been reported to userspace.
 	 */
-	if (dev_priv->perf.oa.periodic)
-		oastatus1 &= ~dev_priv->perf.oa.gen7_latched_oastatus1;
+	oastatus1 &= ~dev_priv->perf.oa.gen7_latched_oastatus1;
 
-	if (unlikely(oastatus1 & (GEN7_OASTATUS1_OABUFFER_OVERFLOW |
-				  GEN7_OASTATUS1_REPORT_LOST))) {
+	/* We treat OABUFFER_OVERFLOW as a significant error:
+	 *
+	 * - The status can be interpreted to simply mean that the buffer is
+	 *   currently full (which would have to take higher precedence than
+	 *   OA_TAKEN() which will start to report a near-empty buffer after an
+	 *   overflow) but it's awkward that we can't clear the status on
+	 *   Haswell, so without a reset we won't be able to catch the state
+	 *   again.
+	 * - Since it also implies the HW has started overwriting old reports
+	 *   with non-zero timestamp fields it may also affects our ability to
+	 *   detect the memory write races vs tail pointer updates that are
+	 *   sometimes seen.
+	 * - In the future we may want to introduce a flight recorder mode
+	 *   where the driver will automatically maintain a safe guard band
+	 *   between head/tail, avoiding this overflow condition, but we
+	 *   avoid the added driver complexity for now.
+	 */
+	if (unlikely(oastatus1 & GEN7_OASTATUS1_OABUFFER_OVERFLOW)) {
+		ret = append_oa_status(stream, read_state,
+				       DRM_I915_PERF_RECORD_OA_BUFFER_LOST);
+		if (ret)
+			return ret;
 
-		if (oastatus1 & GEN7_OASTATUS1_OABUFFER_OVERFLOW) {
-			ret = append_oa_status(stream, read_state,
-					       DRM_I915_PERF_RECORD_OA_BUFFER_OVERFLOW);
-			if (ret)
-				return ret;
-			dev_priv->perf.oa.gen7_latched_oastatus1 |=
-				GEN7_OASTATUS1_OABUFFER_OVERFLOW;
-		}
+		DRM_ERROR("OA buffer overflow: force restart");
 
-		if (ret == 0 && oastatus1 & GEN7_OASTATUS1_REPORT_LOST) {
-			ret = append_oa_status(stream, read_state,
-					       DRM_I915_PERF_RECORD_OA_REPORT_LOST);
-			if (ret)
-				return ret;
-			dev_priv->perf.oa.gen7_latched_oastatus1 |=
-				GEN7_OASTATUS1_REPORT_LOST;
-		}
+		dev_priv->perf.oa.ops.oa_disable(dev_priv);
+		dev_priv->perf.oa.ops.oa_enable(dev_priv);
+
+		oastatus2 = I915_READ(GEN7_OASTATUS2);
+		oastatus1 = I915_READ(GEN7_OASTATUS1);
+
+		head = oastatus2 & GEN7_OASTATUS2_HEAD_MASK;
+		tail = oastatus1 & GEN7_OASTATUS1_TAIL_MASK;
+	}
+
+	if (unlikely(oastatus1 & GEN7_OASTATUS1_REPORT_LOST)) {
+		ret = append_oa_status(stream, read_state,
+				       DRM_I915_PERF_RECORD_OA_REPORT_LOST);
+		if (ret)
+			return ret;
+		dev_priv->perf.oa.gen7_latched_oastatus1 |=
+			GEN7_OASTATUS1_REPORT_LOST;
 	}
 
 	ret = gen7_append_oa_reports(stream, read_state, &head, tail);
@@ -627,6 +686,7 @@ static void gen7_init_oa_buffer(struct drm_i915_private *dev_priv)
 
 static void gen8_init_oa_buffer(struct drm_i915_private *dev_priv)
 {
+#warning "gen8_init_oa_buffer(): should we clear OASTATUS here?"
 	I915_WRITE(GEN8_OAHEADPTR,
 		   dev_priv->perf.oa.oa_buffer.gtt_offset);
 
@@ -1304,8 +1364,11 @@ static ssize_t i915_perf_read_locked(struct i915_perf_stream *stream,
 	struct i915_perf_read_state state = { count, 0, buf };
 	int ret = stream->read(stream, &state);
 
-	if ((ret == -ENOSPC || ret == -EFAULT) && state.read)
+	if (state.read && (ret == -ENOSPC || ret == -EFAULT || ret == -EAGAIN))
 		ret = 0;
+
+	WARN_ONCE(state.read && ret,
+		  "unexpected OA read error (%d) with partial copy\n", ret);
 
 	if (ret)
 		return ret;
@@ -1353,7 +1416,7 @@ static ssize_t i915_perf_read(struct file *file,
 	return ret;
 }
 
-static enum hrtimer_restart poll_check_timer_cb(struct hrtimer *hrtimer)
+static enum hrtimer_restart oa_poll_check_timer_cb(struct hrtimer *hrtimer)
 {
 	struct drm_i915_private *dev_priv =
 		container_of(hrtimer, typeof(*dev_priv),
@@ -1804,7 +1867,7 @@ void i915_perf_init(struct drm_device *dev)
 
 	hrtimer_init(&dev_priv->perf.oa.poll_check_timer,
 		     CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-	dev_priv->perf.oa.poll_check_timer.function = poll_check_timer_cb;
+	dev_priv->perf.oa.poll_check_timer.function = oa_poll_check_timer_cb;
 	init_waitqueue_head(&dev_priv->perf.oa.poll_wq);
 
 	INIT_LIST_HEAD(&dev_priv->perf.streams);

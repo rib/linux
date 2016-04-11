@@ -1253,18 +1253,17 @@ enum drm_i915_perf_record_type {
 	DRM_I915_PERF_RECORD_SAMPLE = 1,
 
 	/*
-	 * Indicates that one or more OA reports was not written
-	 * by the hardware.
+	 * Indicates that one or more OA reports were not written by the
+	 * hardware. This can happen for example if an MI_REPORT_PERF_COUNT
+	 * command collides with periodic sampling - which would be more likely
+	 * at higher sampling frequencies.
 	 */
 	DRM_I915_PERF_RECORD_OA_REPORT_LOST = 2,
 
-	/*
-	 * Indicates that the internal circular buffer that Gen
-	 * graphics writes OA reports into has filled, which may
-	 * either mean that old reports could be overwritten or
-	 * subsequent reports lost until the buffer is cleared.
+	/**
+	 * An error occurred that resulted in all pending OA reports being lost.
 	 */
-	DRM_I915_PERF_RECORD_OA_BUFFER_OVERFLOW = 3,
+	DRM_I915_PERF_RECORD_OA_BUFFER_LOST = 3,
 
 	DRM_I915_PERF_RECORD_MAX /* non-ABI */
 };
