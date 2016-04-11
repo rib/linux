@@ -2077,8 +2077,6 @@ struct drm_i915_private {
 				struct drm_i915_gem_object *obj;
 				u32 gtt_offset;
 				u8 *addr;
-				u32 head;
-				u32 tail;
 				u32 last_ctx_id;
 				int format;
 				int format_size;
