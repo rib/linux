@@ -412,6 +412,10 @@ static int i915_oa_wait_unlocked(struct i915_perf_stream *stream)
 {
 	struct drm_i915_private *dev_priv = stream->dev_priv;
 
+	/* We would wait indefinitly if periodic sampling is not enabled */
+	if (!dev_priv->perf.oa.periodic)
+		return -EIO;
+
 	/* Note: the oa_buffer_is_empty() condition is ok to run unlocked as it
 	 * just performs mmio reads of the OA buffer head + tail pointers and
 	 * it's assumed we're handling some operation that implies the stream

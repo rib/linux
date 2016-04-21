@@ -1799,7 +1799,7 @@ struct i915_perf_stream {
 	struct intel_context *ctx;
 	bool enabled;
 
-	struct i915_perf_stream_ops *ops;
+	const struct i915_perf_stream_ops *ops;
 };
 
 struct i915_oa_ops {
