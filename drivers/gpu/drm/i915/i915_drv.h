@@ -1728,17 +1728,9 @@ struct i915_perf_read_state {
 	char __user *buf;
 };
 
-struct i915_perf_stream {
-	struct drm_i915_private *dev_priv;
+struct i915_perf_stream;
 
-	struct list_head link;
-
-	u32 sample_flags;
-	int sample_size;
-
-	struct intel_context *ctx;
-	bool enabled;
-
+struct i915_perf_stream_ops {
 	/* Enables the collection of HW samples, either in response to
 	 * I915_PERF_IOCTL_ENABLE or implicitly called when stream is
 	 * opened without I915_PERF_FLAG_DISABLED.
@@ -1794,6 +1786,20 @@ struct i915_perf_stream {
 	 * The stream will always be disabled before this is called.
 	 */
 	void (*destroy)(struct i915_perf_stream *stream);
+};
+
+struct i915_perf_stream {
+	struct drm_i915_private *dev_priv;
+
+	struct list_head link;
+
+	u32 sample_flags;
+	int sample_size;
+
+	struct intel_context *ctx;
+	bool enabled;
+
+	struct i915_perf_stream_ops *ops;
 };
 
 struct i915_oa_ops {

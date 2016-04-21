@@ -716,6 +716,16 @@ static u64 oa_exponent_to_ns(struct drm_i915_private *dev_priv, int exponent)
 		dev_priv->perf.oa.timestamp_frequency;
 }
 
+static const struct i915_perf_stream_ops i915_oa_stream_ops = {
+	.destroy = i915_oa_stream_destroy,
+	.enable = i915_oa_stream_enable,
+	.disable = i915_oa_stream_disable,
+	.can_read = i915_oa_can_read,
+	.wait_unlocked = i915_oa_wait_unlocked,
+	.poll_wait = i915_oa_poll_wait,
+	.read = i915_oa_read,
+};
+
 static int i915_oa_stream_init(struct i915_perf_stream *stream,
 			       struct drm_i915_perf_open_param *param,
 			       struct perf_open_properties *props)
@@ -809,13 +819,7 @@ static int i915_oa_stream_init(struct i915_perf_stream *stream,
 		return ret;
 	}
 
-	stream->destroy = i915_oa_stream_destroy;
-	stream->enable = i915_oa_stream_enable;
-	stream->disable = i915_oa_stream_disable;
-	stream->can_read = i915_oa_can_read;
-	stream->wait_unlocked = i915_oa_wait_unlocked;
-	stream->poll_wait = i915_oa_poll_wait;
-	stream->read = i915_oa_read;
+	stream->ops = &i915_oa_stream_ops;
 
 	/* On Haswell we have to track which OASTATUS1 flags we've already
 	 * seen since they can't be cleared while periodic sampling is enabled.
@@ -875,7 +879,7 @@ static ssize_t i915_perf_read_locked(struct i915_perf_stream *stream,
 				     loff_t *ppos)
 {
 	struct i915_perf_read_state state = { count, 0, buf };
-	int ret = stream->read(stream, &state);
+	int ret = stream->ops->read(stream, &state);
 
 	/* Squash any internal error status in any case where we've
 	 * successfully copied some data so the data isn't lost.
@@ -907,14 +911,14 @@ static ssize_t i915_perf_read(struct file *file,
 
 	if (!(file->f_flags & O_NONBLOCK)) {
 		/* There's the small chance of false positives from
-		 * stream->wait_unlocked.
+		 * stream->ops->wait_unlocked.
 		 *
 		 * E.g. with single context filtering since we only wait until
 		 * oabuffer has >= 1 report we don't immediately know whether
 		 * any reports really belong to the current context
 		 */
 		do {
-			ret = stream->wait_unlocked(stream);
+			ret = stream->ops->wait_unlocked(stream);
 			if (ret)
 				return ret;
 
@@ -952,9 +956,9 @@ static unsigned int i915_perf_poll_locked(struct i915_perf_stream *stream,
 {
 	unsigned int streams = 0;
 
-	stream->poll_wait(stream, file, wait);
+	stream->ops->poll_wait(stream, file, wait);
 
-	if (stream->can_read(stream))
+	if (stream->ops->can_read(stream))
 		streams |= POLLIN;
 
 	return streams;
@@ -978,11 +982,11 @@ static void i915_perf_enable_locked(struct i915_perf_stream *stream)
 	if (stream->enabled)
 		return;
 
-	/* Allow stream->enable() to refer to this */
+	/* Allow stream->ops->enable() to refer to this */
 	stream->enabled = true;
 
-	if (stream->enable)
-		stream->enable(stream);
+	if (stream->ops->enable)
+		stream->ops->enable(stream);
 }
 
 static void i915_perf_disable_locked(struct i915_perf_stream *stream)
@@ -990,11 +994,11 @@ static void i915_perf_disable_locked(struct i915_perf_stream *stream)
 	if (!stream->enabled)
 		return;
 
-	/* Allow stream->disable() to refer to this */
+	/* Allow stream->ops->disable() to refer to this */
 	stream->enabled = false;
 
-	if (stream->disable)
-		stream->disable(stream);
+	if (stream->ops->disable)
+		stream->ops->disable(stream);
 }
 
 static long i915_perf_ioctl_locked(struct i915_perf_stream *stream,
@@ -1035,8 +1039,8 @@ static void i915_perf_destroy_locked(struct i915_perf_stream *stream)
 	if (stream->enabled)
 		i915_perf_disable_locked(stream);
 
-	if (stream->destroy)
-		stream->destroy(stream);
+	if (stream->ops->destroy)
+		stream->ops->destroy(stream);
 
 	list_del(&stream->link);
 
@@ -1147,8 +1151,8 @@ int i915_perf_open_ioctl_locked(struct drm_device *dev,
 
 err_open:
 	list_del(&stream->link);
-	if (stream->destroy)
-		stream->destroy(stream);
+	if (stream->ops->destroy)
+		stream->ops->destroy(stream);
 err_alloc:
 	kfree(stream);
 err_ctx:
