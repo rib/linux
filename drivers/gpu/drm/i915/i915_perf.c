@@ -448,7 +448,7 @@ free_oa_buffer(struct drm_i915_private *i915)
 {
 	mutex_lock(&i915->dev->struct_mutex);
 
-	vunmap(i915->perf.oa.oa_buffer.addr);
+	i915_gem_object_unpin_map(i915->perf.oa.oa_buffer.obj);
 	i915_gem_object_ggtt_unpin(i915->perf.oa.oa_buffer.obj);
 	drm_gem_object_unreference(&i915->perf.oa.oa_buffer.obj->base);
 
@@ -473,37 +473,6 @@ static void i915_oa_stream_destroy(struct i915_perf_stream *stream)
 	intel_runtime_pm_put(dev_priv);
 
 	dev_priv->perf.oa.exclusive_stream = NULL;
-}
-
-static void *vmap_oa_buffer(struct drm_i915_gem_object *obj)
-{
-	int i;
-	void *addr = NULL;
-	struct sg_page_iter sg_iter;
-	struct page **pages;
-
-	pages = drm_malloc_ab(obj->base.size >> PAGE_SHIFT, sizeof(*pages));
-	if (pages == NULL) {
-		DRM_DEBUG_DRIVER("Failed to get space for pages\n");
-		goto finish;
-	}
-
-	i = 0;
-	for_each_sg_page(obj->pages->sgl, &sg_iter, obj->pages->nents, 0) {
-		pages[i] = sg_page_iter_page(&sg_iter);
-		i++;
-	}
-
-	addr = vmap(pages, i, 0, PAGE_KERNEL);
-	if (addr == NULL) {
-		DRM_DEBUG_DRIVER("Failed to vmap pages\n");
-		goto finish;
-	}
-
-finish:
-	if (pages)
-		drm_free_large(pages);
-	return addr;
 }
 
 static void gen7_init_oa_buffer(struct drm_i915_private *dev_priv)
@@ -560,7 +529,9 @@ static int alloc_oa_buffer(struct drm_i915_private *dev_priv)
 		goto err_unref;
 
 	dev_priv->perf.oa.oa_buffer.gtt_offset = i915_gem_obj_ggtt_offset(bo);
-	dev_priv->perf.oa.oa_buffer.addr = vmap_oa_buffer(bo);
+	dev_priv->perf.oa.oa_buffer.addr = i915_gem_object_pin_map(bo);
+	if (dev_priv->perf.oa.oa_buffer.addr == NULL)
+		goto err_unpin;
 
 	dev_priv->perf.oa.ops.init_oa_buffer(dev_priv);
 
@@ -569,6 +540,9 @@ static int alloc_oa_buffer(struct drm_i915_private *dev_priv)
 			 dev_priv->perf.oa.oa_buffer.addr);
 
 	goto unlock;
+
+err_unpin:
+	i915_gem_object_ggtt_unpin(bo);
 
 err_unref:
 	drm_gem_object_unreference(&bo->base);
