@@ -623,7 +623,7 @@ static int hsw_enable_metric_set(struct drm_i915_private *dev_priv)
 	 * config but hopefully it covers the maximum configuration
 	 * latency...
 	 */
-	mdelay(100);
+	msleep(100);
 
 	config_oa_regs(dev_priv, dev_priv->perf.oa.b_counter_regs,
 		       dev_priv->perf.oa.b_counter_regs_len);
