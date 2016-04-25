@@ -517,7 +517,7 @@ static int alloc_oa_buffer(struct drm_i915_private *dev_priv)
 	if (ret)
 		return ret;
 
-	bo = i915_gem_alloc_object(dev_priv->dev, OA_BUFFER_SIZE);
+	bo = i915_gem_object_create(dev_priv->dev, OA_BUFFER_SIZE);
 	if (bo == NULL) {
 		DRM_ERROR("Failed to allocate OA buffer\n");
 		ret = -ENOMEM;
