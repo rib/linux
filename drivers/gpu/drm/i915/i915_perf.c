@@ -492,10 +492,16 @@ static void gen7_init_oa_buffer(struct drm_i915_private *dev_priv)
 	 */
 	dev_priv->perf.oa.gen7_latched_oastatus1 = 0;
 
-	/* We have a sanity check in gen7_append_oa_reports() that
-	 * looks at the report-id field to make sure it's non-zero
-	 * which relies on the assumption that new reports are
-	 * being written to zeroed memory...
+	/* NB: although the OA buffer will initially be allocated
+	 * zeroed via shmfs (and so this memset is redundant when
+	 * first allocating), we may re-init the OA buffer, either
+	 * when re-enabling a stream or in error/reset paths.
+	 *
+	 * The reason we clear the buffer for each re-init is for the
+	 * sanity check in gen7_append_oa_reports() that looks at the
+	 * report-id field to make sure it's non-zero which relies on
+	 * the assumption that new reports are being written to zeroed
+	 * memory...
 	 */
 	memset(dev_priv->perf.oa.oa_buffer.addr, 0, SZ_16M);
 }
