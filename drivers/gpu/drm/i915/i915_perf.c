@@ -572,7 +572,8 @@ static int hsw_enable_metric_set(struct drm_i915_private *dev_priv)
 	if (ret)
 		return ret;
 
-	I915_WRITE(GDT_CHICKEN_BITS, GT_NOA_ENABLE);
+	I915_WRITE(GDT_CHICKEN_BITS, (I915_READ(GDT_CHICKEN_BITS) |
+				      GT_NOA_ENABLE));
 
 	/* PRM:
 	 *
