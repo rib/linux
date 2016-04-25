@@ -834,6 +834,11 @@ static void i915_oa_context_pin_notify_locked(struct drm_i915_private *dev_priv,
 	    dev_priv->perf.oa.ops.update_hw_ctx_id_locked == NULL)
 		return;
 
+	if (!context) {
+		DRM_ERROR("NULL pin-notify context pointer");
+		return;
+	}
+
 	if (dev_priv->perf.oa.exclusive_stream &&
 	    dev_priv->perf.oa.exclusive_stream->ctx == context) {
 		struct drm_i915_gem_object *obj =
