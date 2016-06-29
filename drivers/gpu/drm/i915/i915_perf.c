@@ -304,7 +304,15 @@ static int gen8_append_oa_reports(struct i915_perf_stream *stream,
 			ctx_id &= 0xfffff;
 		}
 
-		if (ctx_id == 0) {
+		/* The reason field includes flags identifying what
+		 * triggered this specific report (mostly timer
+		 * triggered or e.g. due to a context switch).
+		 *
+		 * This field is never expected to be zero so we can
+		 * check that the report isn't invalid before copying
+		 * it to userspace...
+		 */
+		if (report32[0] == 0) {
 			DRM_ERROR("Skipping spurious, invalid OA report\n");
 			continue;
 		}
@@ -320,6 +328,10 @@ static int gen8_append_oa_reports(struct i915_perf_stream *stream,
 		 * an invalid ID. It could be good to annotate these
 		 * reports with a _CTX_SWITCH_AWAY reason later.
 		 */
+#warning "fixme: check that the context ID is valid in the current report before referencing it"
+
+/* XXX: need to better consider reports where the ctx ID isn't valid */
+#warning "todo: refine how gen8+ ctx-switch-away reports are identified"
 		if (!dev_priv->perf.oa.exclusive_stream->ctx ||
 		    dev_priv->perf.oa.specific_ctx_id == ctx_id ||
 		    dev_priv->perf.oa.oa_buffer.last_ctx_id == ctx_id) {
@@ -372,32 +384,44 @@ static int gen8_oa_read(struct i915_perf_stream *stream,
 	tail = I915_READ(GEN8_OATAILPTR) & GEN8_OATAILPTR_MASK;
 	oastatus = I915_READ(GEN8_OASTATUS);
 
-	if (unlikely(oastatus & (GEN8_OASTATUS_OABUFFER_OVERFLOW |
-				 GEN8_OASTATUS_REPORT_LOST))) {
-
-		if (oastatus & GEN8_OASTATUS_OABUFFER_OVERFLOW) {
-			ret = append_oa_status(stream, read_state,
-					       DRM_I915_PERF_RECORD_OA_BUFFER_LOST);
-			if (ret)
-				return ret;
-
-			oastatus &= ~GEN8_OASTATUS_OABUFFER_OVERFLOW;
-		}
-
-		if (oastatus & GEN8_OASTATUS_REPORT_LOST) {
-			ret = append_oa_status(stream, read_state,
-					       DRM_I915_PERF_RECORD_OA_REPORT_LOST);
-			if (ret == 0)
-				oastatus &= ~GEN8_OASTATUS_REPORT_LOST;
-		}
-
-		I915_WRITE(GEN8_OASTATUS, oastatus);
-
+	/* We treat OABUFFER_OVERFLOW as a significant error:
+	 *
+	 * Although theoretically we could handle this more gracefully
+	 * sometimes, some Gens don't correctly suppress certain
+	 * automatically triggered reports in this condition and so we
+	 * have to assume that old reports are now being trampled
+	 * over.
+	 *
+	 * Considering how we don't currently give userspace control
+	 * over the OA buffer size and always configure a large 16MB
+	 * buffer, then a buffer overflow does anyway likely indicate
+	 * that something has gone quite badly wrong.
+	 */
+	if (oastatus & GEN8_OASTATUS_OABUFFER_OVERFLOW) {
+		ret = append_oa_status(stream, read_state,
+				       DRM_I915_PERF_RECORD_OA_BUFFER_LOST);
 		if (ret)
 			return ret;
+
+		DRM_ERROR("OA buffer overflow: force restart");
+
+		dev_priv->perf.oa.ops.oa_disable(dev_priv);
+		dev_priv->perf.oa.ops.oa_enable(dev_priv);
+
+		oastatus = I915_READ(GEN8_OASTATUS);
+
+		head = I915_READ(GEN8_OAHEADPTR) & GEN8_OAHEADPTR_MASK;
+		tail = I915_READ(GEN8_OATAILPTR) & GEN8_OATAILPTR_MASK;
 	}
 
-	/* If there is still buffer space */
+	if (oastatus & GEN8_OASTATUS_REPORT_LOST) {
+		ret = append_oa_status(stream, read_state,
+				       DRM_I915_PERF_RECORD_OA_REPORT_LOST);
+		if (ret == 0) {
+			I915_WRITE(GEN8_OASTATUS,
+				   oastatus & ~GEN8_OASTATUS_REPORT_LOST);
+		}
+	}
 
 	ret = gen8_append_oa_reports(stream, read_state, &head, tail);
 
