@@ -304,7 +304,15 @@ static int gen8_append_oa_reports(struct i915_perf_stream *stream,
 			ctx_id &= 0xfffff;
 		}
 
-		if (ctx_id == 0) {
+		/* The reason field includes flags identifying what
+		 * triggered this specific report (mostly timer
+		 * triggered or e.g. due to a context switch).
+		 *
+		 * This field is never expected to be zero so we can
+		 * check that the report isn't invalid before copying
+		 * it to userspace...
+		 */
+		if (report32[0] == 0) {
 			DRM_ERROR("Skipping spurious, invalid OA report\n");
 			continue;
 		}
@@ -320,6 +328,10 @@ static int gen8_append_oa_reports(struct i915_perf_stream *stream,
 		 * an invalid ID. It could be good to annotate these
 		 * reports with a _CTX_SWITCH_AWAY reason later.
 		 */
+#warning "fixme: check that the context ID is valid in the current report before referencing it"
+
+/* XXX: need to better consider reports where the ctx ID isn't valid */
+#warning "todo: refine how gen8+ ctx-switch-away reports are identified"
 		if (!dev_priv->perf.oa.exclusive_stream->ctx ||
 		    dev_priv->perf.oa.specific_ctx_id == ctx_id ||
 		    dev_priv->perf.oa.oa_buffer.last_ctx_id == ctx_id) {
