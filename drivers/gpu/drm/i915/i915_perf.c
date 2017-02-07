@@ -2029,17 +2029,18 @@ static int i915_oa_stream_init(struct i915_perf_stream *stream,
 	intel_runtime_pm_get(dev_priv);
 	intel_uncore_forcewake_get(dev_priv, FORCEWAKE_ALL);
 
+	stream->ops = &i915_oa_stream_ops;
+	dev_priv->perf.oa.exclusive_stream = stream;
+
 	ret = dev_priv->perf.oa.ops.enable_metric_set(dev_priv);
 	if (ret)
 		goto err_enable;
 
-	stream->ops = &i915_oa_stream_ops;
-
-	dev_priv->perf.oa.exclusive_stream = stream;
-
 	return 0;
 
 err_enable:
+	dev_priv->perf.oa.exclusive_stream = NULL;
+	stream->ops = NULL;
 	intel_uncore_forcewake_put(dev_priv, FORCEWAKE_ALL);
 	intel_runtime_pm_put(dev_priv);
 	free_oa_buffer(dev_priv);
