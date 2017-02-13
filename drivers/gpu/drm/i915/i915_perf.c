@@ -784,13 +784,16 @@ static int gen8_append_oa_reports(struct i915_perf_stream *stream,
 		 * this field
 		 */
 		ctx_id = report32[2] & 0x1fffff;
+		DRM_ERROR("report CTX ID: %u\n", ctx_id);
 
 		/* Squash whatever is in the CTX_ID field if it's
 		 * marked as invalid to be sure we avoid
 		 * false-positive, single-context filtering below...
 		 */
-		if (!(report32[0] & dev_priv->perf.oa.gen8_valid_ctx_bit))
+		if (!(report32[0] & dev_priv->perf.oa.gen8_valid_ctx_bit)) {
 			ctx_id = report32[2] = INVALID_CTX_ID;
+			DRM_ERROR("squashing 'invalid' ctx ID\n");
+		}
 
 		/* NB: For Gen 8 the OA unit no longer supports clock gating
 		 * off for a specific context and the kernel can't securely
@@ -832,15 +835,18 @@ static int gen8_append_oa_reports(struct i915_perf_stream *stream,
 			if (dev_priv->perf.oa.exclusive_stream->ctx &&
 			    dev_priv->perf.oa.specific_ctx_id != ctx_id) {
 				report32[2] = INVALID_CTX_ID;
+				DRM_ERROR("squashing switch-away ctx ID\n");
 			}
 
+			DRM_ERROR("appending ts = %u\n", report32[1]);
 			ret = append_oa_sample(stream, buf, count, offset,
 					       report);
 			if (ret)
 				break;
 
 			dev_priv->perf.oa.oa_buffer.last_ctx_id = ctx_id;
-		}
+		} else
+			DRM_ERROR("skipping ts = %u, id = %u\n", report32[1], ctx_id);
 
 		/* The above reason field sanity check is based on
 		 * the assumption that the OA buffer is initially
@@ -3028,6 +3034,9 @@ void i915_perf_init(struct drm_i915_private *dev_priv)
 			gen7_oa_buffer_check_unlocked;
 
 		dev_priv->perf.oa.oa_formats = hsw_oa_formats;
+		DRM_ERROR("XXX: hsw_oa_formats\n");
+		DRM_ERROR("XXX: hsw_oa_formats: [5].size = %d\n",
+				dev_priv->perf.oa.oa_formats[5].size);
 
 		dev_priv->perf.oa.n_builtin_sets =
 			i915_oa_n_builtin_metric_sets_hsw;
@@ -3108,6 +3117,9 @@ void i915_perf_init(struct drm_i915_private *dev_priv)
 		spin_lock_init(&dev_priv->perf.oa.oa_buffer.ptr_lock);
 
 		dev_priv->perf.sysctl_header = register_sysctl_table(dev_root);
+
+		DRM_ERROR("XXX post-init: [5].size = %d\n",
+				dev_priv->perf.oa.oa_formats[5].size);
 
 		dev_priv->perf.initialized = true;
 	}
