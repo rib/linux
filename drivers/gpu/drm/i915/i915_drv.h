@@ -2474,6 +2474,12 @@ struct drm_i915_private {
 			u32 ctx_oactxctrl_off;
 			u32 ctx_flexeu0_off;
 
+			/* The RPT_ID/reason field for Gen8+ includes a bit
+			 * to determine if the CTX ID in the report is valid
+			 * but the specific bit differs between Gen 8 and 9
+			 */
+			u32 gen8_valid_ctx_bit;
+
 			struct i915_oa_ops ops;
 			const struct i915_oa_format *oa_formats;
 			int n_builtin_sets;

@@ -276,6 +276,13 @@ static u32 i915_perf_stream_paranoid = true;
 
 #define INVALID_CTX_ID 0xffffffff
 
+/* On Gen8+ automatically triggered OA reports include a 'reason' field... */
+#define OAREPORT_REASON_MASK           0x3f
+#define OAREPORT_REASON_SHIFT          19
+#define OAREPORT_REASON_TIMER          (1<<0)
+#define OAREPORT_REASON_CTX_SWITCH     (1<<3)
+#define OAREPORT_REASON_CLK_RATIO      (1<<5)
+
 
 /* For sysctl proc_dointvec_minmax of i915_oa_max_sample_rate
  *
@@ -738,7 +745,8 @@ static int gen8_append_oa_reports(struct i915_perf_stream *stream,
 	     head = (head + report_size) & mask) {
 		u8 *report = oa_buf_base + head;
 		u32 *report32 = (void *)report;
-		u32 ctx_id = report32[2];
+		u32 ctx_id;
+		u32 reason;
 
 		/* All the report sizes factor neatly into the buffer
 		 * size so we never expect to see a report split
@@ -753,20 +761,6 @@ static int gen8_append_oa_reports(struct i915_perf_stream *stream,
 			break;
 		}
 
-		/* XXX: Just keep the lower 21 bits for now since I'm not
-		 * entirely sure if the HW touches any of the higher bits in
-		 * this field
-		 */
-		ctx_id &= 0x1fffff;
-
-		/* Squash whatever is in the CTX_ID field if it's
-		 * marked as invalid to be sure we avoid
-		 * false-positive, single-context filtering below...
-		 */
-#define OAREPORT_CTX_ID_VALID (1<<25)
-		if (!(report32[0] & OAREPORT_CTX_ID_VALID))
-			ctx_id = report32[2] = 0xffffffff;
-
 		/* The reason field includes flags identifying what
 		 * triggered this specific report (mostly timer
 		 * triggered or e.g. due to a context switch).
@@ -775,37 +769,68 @@ static int gen8_append_oa_reports(struct i915_perf_stream *stream,
 		 * check that the report isn't invalid before copying
 		 * it to userspace...
 		 */
-		if (report32[0] == 0) {
+		reason = ((report32[0] >> OAREPORT_REASON_SHIFT) &
+			  OAREPORT_REASON_MASK);
+		if (reason == 0) {
 			if (printk_ratelimit())
 				DRM_NOTE("Skipping spurious, invalid OA report\n");
 			continue;
 		}
 
-		/* NB: For Gen 8 we handle per-context report filtering
-		 * ourselves instead of programming the OA unit with a
-		 * specific context id.
+		/* XXX: Just keep the lower 21 bits for now since I'm not
+		 * entirely sure if the HW touches any of the higher bits in
+		 * this field
+		 */
+		ctx_id = report32[2] & 0x1fffff;
+
+		/* Squash whatever is in the CTX_ID field if it's
+		 * marked as invalid to be sure we avoid
+		 * false-positive, single-context filtering below...
+		 */
+		if (!(report32[0] & dev_priv->perf.oa.gen8_valid_ctx_bit))
+			ctx_id = report32[2] = INVALID_CTX_ID;
+
+		/* NB: For Gen 8 the OA unit no longer supports clock gating
+		 * off for a specific context and the kernel can't securely
+		 * stop the counters from updating as system-wide / global
+		 * values.
 		 *
-		 * NB: To allow userspace to calculate all counter
-		 * deltas for a specific context we have to send the
-		 * first report belonging to any subsequently
-		 * switched-too context. In this case we set the ID to
-		 * an invalid ID. It could be good to annotate these
-		 * reports with a _CTX_SWITCH_AWAY reason later.
+		 * Automatic reports now include a context ID so reports can be
+		 * filtered on the cpu but it's not worth trying to
+		 * automatically subtract/hide counter progress for other
+		 * contexts while filtering since we can't stop userspace
+		 * issuing MI_REPORT_PERF_COUNT commands which would still
+		 * provide a side-band view of the real values.
+		 *
+		 * To allow userspace (such as Mesa/GL_INTEL_performance_query)
+		 * to normalize counters for a single filtered context then it
+		 * needs be forwarded context-switch reports so that it can
+		 * track switches in between MI_REPORT_PERF_COUNT commands and
+		 * can itself subtract/ignore the progress of counters
+		 * associated with other contexts. To avoid the complexity (and
+		 * likely fragility) of reading ahead while parsing reports to
+		 * try and minimize forwarding redundant context switch reports
+		 * (i.e. between other, unrelated contexts) we simply elect to
+		 * forward them all.
+		 *
+		 * We don't rely solely on the reason field to identify context
+		 * switches since it's not-uncommon for periodic samples to
+		 * identify a switch before any 'context switch' report.
 		 */
 		if (!dev_priv->perf.oa.exclusive_stream->ctx ||
 		    dev_priv->perf.oa.specific_ctx_id == ctx_id ||
-		    dev_priv->perf.oa.oa_buffer.last_ctx_id == ctx_id) {
+		    (dev_priv->perf.oa.oa_buffer.last_ctx_id ==
+		     dev_priv->perf.oa.specific_ctx_id) ||
+		    reason & OAREPORT_REASON_CTX_SWITCH) {
 
-			/* Note: we don't check the reason field to
-			 * recognise context-switch reports because
-			 * it's possible that the first report after a
-			 * context switch is in fact periodic. We mark
-			 * the switch-away reports with an invalid
-			 * context id to be recognisable by userspace.
+			/* We mark the context-switch reports with an invalid
+			 * context id to be recognisable by userspace and to
+			 * avoid leaking the IDs of other contexts.
 			 */
 			if (dev_priv->perf.oa.exclusive_stream->ctx &&
-			    dev_priv->perf.oa.specific_ctx_id != ctx_id)
-				report32[2] = 0xffffffff;
+			    dev_priv->perf.oa.specific_ctx_id != ctx_id) {
+				report32[2] = INVALID_CTX_ID;
+			}
 
 			ret = append_oa_sample(stream, buf, count, offset,
 					       report);
@@ -2530,6 +2555,7 @@ i915_perf_open_ioctl_locked(struct drm_i915_private *dev_priv,
 	struct i915_gem_context *specific_ctx = NULL;
 	struct i915_perf_stream *stream = NULL;
 	unsigned long f_flags = 0;
+	bool privileged_op = true;
 	int stream_fd;
 	int ret;
 
@@ -2547,12 +2573,28 @@ i915_perf_open_ioctl_locked(struct drm_i915_private *dev_priv,
 		}
 	}
 
+	/* On Haswell the OA unit supports clock gating off for a specific
+	 * context and in this mode there's no visibility of metrics for the
+	 * rest of the system, which we consider acceptable for a
+	 * non-privileged client.
+	 *
+	 * For Gen8+ the OA unit no longer supports clock gating off for a
+	 * specific context and the kernel can't securely stop the counters
+	 * from updating as system-wide / global values. Even though we can
+	 * filter reports based on the included context ID we can't block
+	 * clients from seeing the raw / global counter values via
+	 * MI_REPORT_PERF_COUNT commands and so consider it a privileged op to
+	 * enable the OA unit by default.
+	 */
+	if (IS_HASWELL(dev_priv) && specific_ctx)
+		privileged_op = false;
+
 	/* Similar to perf's kernel.perf_paranoid_cpu sysctl option
 	 * we check a dev.i915.perf_stream_paranoid sysctl option
 	 * to determine if it's ok to access system wide OA counters
 	 * without CAP_SYS_ADMIN privileges.
 	 */
-	if (!specific_ctx &&
+	if (privileged_op &&
 	    i915_perf_stream_paranoid && !capable(CAP_SYS_ADMIN)) {
 		DRM_DEBUG("Insufficient privileges to open system-wide i915 perf stream\n");
 		ret = -EACCES;
@@ -2957,7 +2999,7 @@ void i915_perf_init(struct drm_i915_private *dev_priv)
 
 		dev_priv->perf.oa.n_builtin_sets =
 			i915_oa_n_builtin_metric_sets_hsw;
-	} if (i915.enable_execlists) {
+	} else if (i915.enable_execlists) {
 		if (IS_BROADWELL(dev_priv)) {
 			dev_priv->perf.oa.ops.enable_metric_set =
 				bdw_enable_metric_set;
@@ -2965,6 +3007,7 @@ void i915_perf_init(struct drm_i915_private *dev_priv)
 				bdw_disable_metric_set;
 			dev_priv->perf.oa.ctx_oactxctrl_off = 0x120;
 			dev_priv->perf.oa.ctx_flexeu0_off = 0x2ce;
+			dev_priv->perf.oa.gen8_valid_ctx_bit = (1<<25);
 			dev_priv->perf.oa.n_builtin_sets =
 				i915_oa_n_builtin_metric_sets_bdw;
 		} else if (IS_CHERRYVIEW(dev_priv)) {
@@ -2974,6 +3017,7 @@ void i915_perf_init(struct drm_i915_private *dev_priv)
 				chv_disable_metric_set;
 			dev_priv->perf.oa.ctx_oactxctrl_off = 0x120;
 			dev_priv->perf.oa.ctx_flexeu0_off = 0x2ce;
+			dev_priv->perf.oa.gen8_valid_ctx_bit = (1<<25);
 			dev_priv->perf.oa.n_builtin_sets =
 				i915_oa_n_builtin_metric_sets_chv;
 		} else if (IS_SKYLAKE(dev_priv)) {
@@ -2983,6 +3027,7 @@ void i915_perf_init(struct drm_i915_private *dev_priv)
 				skl_disable_metric_set;
 			dev_priv->perf.oa.ctx_oactxctrl_off = 0x128;
 			dev_priv->perf.oa.ctx_flexeu0_off = 0x3de;
+			dev_priv->perf.oa.gen8_valid_ctx_bit = (1<<16);
 			dev_priv->perf.oa.n_builtin_sets =
 				i915_oa_n_builtin_metric_sets_skl;
 		} else if (IS_BROXTON(dev_priv)) {
@@ -2992,6 +3037,7 @@ void i915_perf_init(struct drm_i915_private *dev_priv)
 				bxt_disable_metric_set;
 			dev_priv->perf.oa.ctx_oactxctrl_off = 0x128;
 			dev_priv->perf.oa.ctx_flexeu0_off = 0x3de;
+			dev_priv->perf.oa.gen8_valid_ctx_bit = (1<<16);
 			dev_priv->perf.oa.n_builtin_sets =
 				i915_oa_n_builtin_metric_sets_bxt;
 		}
