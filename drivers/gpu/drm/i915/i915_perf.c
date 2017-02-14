@@ -198,7 +198,9 @@
 #include "i915_oa_hsw.h"
 #include "i915_oa_bdw.h"
 #include "i915_oa_chv.h"
-#include "i915_oa_skl.h"
+#include "i915_oa_sklgt2.h"
+#include "i915_oa_sklgt3.h"
+#include "i915_oa_sklgt4.h"
 #include "i915_oa_bxt.h"
 
 /* HW requires this to be a power of two, between 128k and 16M, though driver
@@ -1706,10 +1708,20 @@ static void chv_disable_metric_set(struct drm_i915_private *dev_priv)
 
 static int skl_enable_metric_set(struct drm_i915_private *dev_priv)
 {
-	int ret = i915_oa_select_metric_set_skl(dev_priv);
-
-	if (ret)
-		return ret;
+	if (IS_SKL_GT2(dev_priv)) {
+		int ret = i915_oa_select_metric_set_sklgt2(dev_priv);
+		if (ret)
+			return ret;
+	} else if (IS_SKL_GT3(dev_priv)) {
+		int ret = i915_oa_select_metric_set_sklgt3(dev_priv);
+		if (ret)
+			return ret;
+	} else if (IS_SKL_GT4(dev_priv)) {
+		int ret = i915_oa_select_metric_set_sklgt4(dev_priv);
+		if (ret)
+			return ret;
+	} else
+		return -ENOTSUPP;
 
 	/* We disable slice/unslice clock ratio change reports on SKL since
 	 * they are too noisy. The HW generates a lot redundant reports where
@@ -2886,7 +2898,16 @@ void i915_perf_register(struct drm_i915_private *dev_priv)
 		if (i915_perf_register_sysfs_chv(dev_priv))
 			goto sysfs_error;
 	} else if (IS_SKYLAKE(dev_priv)) {
-		if (i915_perf_register_sysfs_skl(dev_priv))
+		if (IS_SKL_GT2(dev_priv)) {
+			if (i915_perf_register_sysfs_sklgt2(dev_priv))
+				goto sysfs_error;
+		} else if (IS_SKL_GT3(dev_priv)) {
+			if (i915_perf_register_sysfs_sklgt3(dev_priv))
+				goto sysfs_error;
+		} else if (IS_SKL_GT4(dev_priv)) {
+			if (i915_perf_register_sysfs_sklgt4(dev_priv))
+				goto sysfs_error;
+		} else
 			goto sysfs_error;
 	} else if (IS_BROXTON(dev_priv)) {
 		if (i915_perf_register_sysfs_bxt(dev_priv))
@@ -2923,9 +2944,14 @@ void i915_perf_unregister(struct drm_i915_private *dev_priv)
                 i915_perf_unregister_sysfs_bdw(dev_priv);
         else if (IS_CHERRYVIEW(dev_priv))
                 i915_perf_unregister_sysfs_chv(dev_priv);
-        else if (IS_SKYLAKE(dev_priv))
-                i915_perf_unregister_sysfs_skl(dev_priv);
-        else if (IS_BROXTON(dev_priv))
+        else if (IS_SKYLAKE(dev_priv)) {
+		if (IS_SKL_GT2(dev_priv))
+			i915_perf_unregister_sysfs_sklgt2(dev_priv);
+		else if (IS_SKL_GT3(dev_priv))
+			i915_perf_unregister_sysfs_sklgt3(dev_priv);
+		else if (IS_SKL_GT4(dev_priv))
+			i915_perf_unregister_sysfs_sklgt4(dev_priv);
+	} else if (IS_BROXTON(dev_priv))
                 i915_perf_unregister_sysfs_bxt(dev_priv);
 
 	kobject_put(dev_priv->perf.metrics_kobj);
@@ -3030,8 +3056,18 @@ void i915_perf_init(struct drm_i915_private *dev_priv)
 			dev_priv->perf.oa.ctx_oactxctrl_off = 0x128;
 			dev_priv->perf.oa.ctx_flexeu0_off = 0x3de;
 			dev_priv->perf.oa.gen8_valid_ctx_bit = (1<<16);
-			dev_priv->perf.oa.n_builtin_sets =
-				i915_oa_n_builtin_metric_sets_skl;
+
+
+			if (IS_SKL_GT2(dev_priv)) {
+				dev_priv->perf.oa.n_builtin_sets =
+					i915_oa_n_builtin_metric_sets_sklgt2;
+			} else if (IS_SKL_GT3(dev_priv)) {
+				dev_priv->perf.oa.n_builtin_sets =
+					i915_oa_n_builtin_metric_sets_sklgt3;
+			} else if (IS_SKL_GT4(dev_priv)) {
+				dev_priv->perf.oa.n_builtin_sets =
+					i915_oa_n_builtin_metric_sets_sklgt4;
+			}
 		} else if (IS_BROXTON(dev_priv)) {
 			dev_priv->perf.oa.ops.enable_metric_set =
 				bxt_enable_metric_set;
