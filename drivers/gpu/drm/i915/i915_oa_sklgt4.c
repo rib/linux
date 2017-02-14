@@ -1567,6 +1567,9 @@ get_tdl_2_mux_config(struct drm_i915_private *dev_priv,
 static const struct i915_oa_reg b_counter_config_compute_extra[] = {
 };
 
+static const struct i915_oa_reg flex_eu_config_compute_extra[] = {
+};
+
 static const struct i915_oa_reg mux_config_compute_extra[] = {
 	{ _MMIO(0x9888), 0x121203e0 },
 	{ _MMIO(0x9888), 0x123203e0 },
@@ -1822,6 +1825,9 @@ static const struct i915_oa_reg b_counter_config_test_oa[] = {
 	{ _MMIO(0x27ac), 0x0000ffe7 },
 };
 
+static const struct i915_oa_reg flex_eu_config_test_oa[] = {
+};
+
 static const struct i915_oa_reg mux_config_test_oa[] = {
 	{ _MMIO(0x9888), 0x11810000 },
 	{ _MMIO(0x9888), 0x07810013 },
@@ -1874,6 +1880,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_render_basic);
 
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_render_basic;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_render_basic);
+
 		return 0;
 	case METRIC_SET_ID_COMPUTE_BASIC:
 		dev_priv->perf.oa.mux_regs =
@@ -1893,6 +1904,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 			b_counter_config_compute_basic;
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_compute_basic);
+
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_compute_basic;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_compute_basic);
 
 		return 0;
 	case METRIC_SET_ID_RENDER_PIPE_PROFILE:
@@ -1914,6 +1930,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_render_pipe_profile);
 
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_render_pipe_profile;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_render_pipe_profile);
+
 		return 0;
 	case METRIC_SET_ID_MEMORY_READS:
 		dev_priv->perf.oa.mux_regs =
@@ -1933,6 +1954,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 			b_counter_config_memory_reads;
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_memory_reads);
+
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_memory_reads;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_memory_reads);
 
 		return 0;
 	case METRIC_SET_ID_MEMORY_WRITES:
@@ -1954,6 +1980,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_memory_writes);
 
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_memory_writes;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_memory_writes);
+
 		return 0;
 	case METRIC_SET_ID_COMPUTE_EXTENDED:
 		dev_priv->perf.oa.mux_regs =
@@ -1973,6 +2004,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 			b_counter_config_compute_extended;
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_compute_extended);
+
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_compute_extended;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_compute_extended);
 
 		return 0;
 	case METRIC_SET_ID_COMPUTE_L3_CACHE:
@@ -1994,6 +2030,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_compute_l3_cache);
 
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_compute_l3_cache;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_compute_l3_cache);
+
 		return 0;
 	case METRIC_SET_ID_HDC_AND_SF:
 		dev_priv->perf.oa.mux_regs =
@@ -2013,6 +2054,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 			b_counter_config_hdc_and_sf;
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_hdc_and_sf);
+
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_hdc_and_sf;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_hdc_and_sf);
 
 		return 0;
 	case METRIC_SET_ID_L3_1:
@@ -2034,6 +2080,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_l3_1);
 
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_l3_1;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_l3_1);
+
 		return 0;
 	case METRIC_SET_ID_L3_2:
 		dev_priv->perf.oa.mux_regs =
@@ -2053,6 +2104,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 			b_counter_config_l3_2;
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_l3_2);
+
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_l3_2;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_l3_2);
 
 		return 0;
 	case METRIC_SET_ID_L3_3:
@@ -2074,6 +2130,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_l3_3);
 
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_l3_3;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_l3_3);
+
 		return 0;
 	case METRIC_SET_ID_RASTERIZER_AND_PIXEL_BACKEND:
 		dev_priv->perf.oa.mux_regs =
@@ -2093,6 +2154,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 			b_counter_config_rasterizer_and_pixel_backend;
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_rasterizer_and_pixel_backend);
+
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_rasterizer_and_pixel_backend;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_rasterizer_and_pixel_backend);
 
 		return 0;
 	case METRIC_SET_ID_SAMPLER:
@@ -2114,6 +2180,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_sampler);
 
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_sampler;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_sampler);
+
 		return 0;
 	case METRIC_SET_ID_TDL_1:
 		dev_priv->perf.oa.mux_regs =
@@ -2133,6 +2204,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 			b_counter_config_tdl_1;
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_tdl_1);
+
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_tdl_1;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_tdl_1);
 
 		return 0;
 	case METRIC_SET_ID_TDL_2:
@@ -2154,6 +2230,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_tdl_2);
 
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_tdl_2;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_tdl_2);
+
 		return 0;
 	case METRIC_SET_ID_COMPUTE_EXTRA:
 		dev_priv->perf.oa.mux_regs =
@@ -2173,6 +2254,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 			b_counter_config_compute_extra;
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_compute_extra);
+
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_compute_extra;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_compute_extra);
 
 		return 0;
 	case METRIC_SET_ID_VME_PIPE:
@@ -2194,6 +2280,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_vme_pipe);
 
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_vme_pipe;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_vme_pipe);
+
 		return 0;
 	case METRIC_SET_ID_TEST_OA:
 		dev_priv->perf.oa.mux_regs =
@@ -2213,6 +2304,11 @@ int i915_oa_select_metric_set_sklgt4(struct drm_i915_private *dev_priv)
 			b_counter_config_test_oa;
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_test_oa);
+
+		dev_priv->perf.oa.flex_regs =
+			flex_eu_config_test_oa;
+		dev_priv->perf.oa.flex_regs_len =
+			ARRAY_SIZE(flex_eu_config_test_oa);
 
 		return 0;
 	default:

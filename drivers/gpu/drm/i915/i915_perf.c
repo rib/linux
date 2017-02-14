@@ -2114,12 +2114,16 @@ static void gen8_update_reg_state_unlocked(struct intel_engine_cs *engine,
 		uint32_t offset = i915_mmio_reg_offset(flex_regs[i].addr);
 
 		/* Map from mmio address to register state context
-		 * offset... */
+		 * offset...
+		 */
 
 		offset -= i915_mmio_reg_offset(EU_PERF_CNTL0);
 
-		offset >>= 5; /* Flex EU mmio registers are separated by 256
-			       * bytes, here they are separated by 8 bytes */
+		/* Flex EU mmio registers are separated by 256 bytes */
+		offset /= 256;
+
+		/* This offset is in dwords not bytes */
+		offset *= 2;
 
 		/* EU_PERF_CNTL0 offset in register state context... */
 		offset += ctx_flexeu0;
