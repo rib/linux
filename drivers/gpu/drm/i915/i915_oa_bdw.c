@@ -50,16 +50,18 @@ enum metric_set_id {
 	METRIC_SET_ID_TDL_1,
 	METRIC_SET_ID_TDL_2,
 	METRIC_SET_ID_COMPUTE_EXTRA,
+	METRIC_SET_ID_VME_PIPE,
 	METRIC_SET_ID_TEST_OA,
 };
 
-int i915_oa_n_builtin_metric_sets_bdw = 21;
+int i915_oa_n_builtin_metric_sets_bdw = 22;
 
 static const struct i915_oa_reg b_counter_config_render_basic[] = {
 	{ _MMIO(0x2710), 0x00000000 },
 	{ _MMIO(0x2714), 0x00800000 },
 	{ _MMIO(0x2720), 0x00000000 },
 	{ _MMIO(0x2724), 0x00800000 },
+	{ _MMIO(0x2740), 0x00000000 },
 };
 
 static const struct i915_oa_reg flex_eu_config_render_basic[] = {
@@ -77,6 +79,7 @@ static const struct i915_oa_reg mux_config_render_basic_1_0_slices_0x01[] = {
 	{ _MMIO(0x9888), 0x14110014 },
 	{ _MMIO(0x9888), 0x14310014 },
 	{ _MMIO(0x9888), 0x14bf000f },
+	{ _MMIO(0x9888), 0x118a0317 },
 	{ _MMIO(0x9888), 0x13837be0 },
 	{ _MMIO(0x9888), 0x3b800060 },
 	{ _MMIO(0x9888), 0x3d800005 },
@@ -125,11 +128,15 @@ static const struct i915_oa_reg mux_config_render_basic_1_0_slices_0x01[] = {
 	{ _MMIO(0x9888), 0x109f0002 },
 	{ _MMIO(0x9888), 0x0ab94000 },
 	{ _MMIO(0x9888), 0x0d888000 },
+	{ _MMIO(0x9888), 0x038a0380 },
+	{ _MMIO(0x9888), 0x058a000e },
 	{ _MMIO(0x9888), 0x018a8000 },
 	{ _MMIO(0x9888), 0x0f8a8000 },
 	{ _MMIO(0x9888), 0x198a8000 },
 	{ _MMIO(0x9888), 0x1b8a00a0 },
-	{ _MMIO(0x9888), 0x238b0020 },
+	{ _MMIO(0x9888), 0x078a0000 },
+	{ _MMIO(0x9888), 0x098a0000 },
+	{ _MMIO(0x9888), 0x238b2820 },
 	{ _MMIO(0x9888), 0x258b2550 },
 	{ _MMIO(0x9888), 0x198c1000 },
 	{ _MMIO(0x9888), 0x0b8d8000 },
@@ -139,13 +146,13 @@ static const struct i915_oa_reg mux_config_render_basic_1_0_slices_0x01[] = {
 	{ _MMIO(0x9888), 0x0d831021 },
 	{ _MMIO(0x9888), 0x0f83572f },
 	{ _MMIO(0x9888), 0x01835680 },
-	{ _MMIO(0x9888), 0x038315ac },
-	{ _MMIO(0x9888), 0x0583002a },
+	{ _MMIO(0x9888), 0x0383002c },
 	{ _MMIO(0x9888), 0x11830000 },
 	{ _MMIO(0x9888), 0x19835400 },
 	{ _MMIO(0x9888), 0x1b830001 },
-	{ _MMIO(0x9888), 0x07830000 },
-	{ _MMIO(0x9888), 0x09830000 },
+	{ _MMIO(0x9888), 0x05830000 },
+	{ _MMIO(0x9888), 0x07834000 },
+	{ _MMIO(0x9888), 0x09834000 },
 	{ _MMIO(0x9888), 0x0184c000 },
 	{ _MMIO(0x9888), 0x07848000 },
 	{ _MMIO(0x9888), 0x0984c000 },
@@ -163,7 +170,6 @@ static const struct i915_oa_reg mux_config_render_basic_1_0_slices_0x01[] = {
 	{ _MMIO(0x9888), 0x1f80c000 },
 	{ _MMIO(0x9888), 0x1380c000 },
 	{ _MMIO(0x9888), 0x15804000 },
-	{ _MMIO(0xd24), 0x00000000 },
 	{ _MMIO(0x9888), 0x4d801110 },
 	{ _MMIO(0x9888), 0x4f800331 },
 	{ _MMIO(0x9888), 0x43800802 },
@@ -172,8 +178,8 @@ static const struct i915_oa_reg mux_config_render_basic_1_0_slices_0x01[] = {
 	{ _MMIO(0x9888), 0x53801111 },
 	{ _MMIO(0x9888), 0x478014a5 },
 	{ _MMIO(0x9888), 0x31800000 },
-	{ _MMIO(0x9888), 0x3f8014a5 },
-	{ _MMIO(0x9888), 0x41800005 },
+	{ _MMIO(0x9888), 0x3f800ca5 },
+	{ _MMIO(0x9888), 0x41800003 },
 };
 
 static const struct i915_oa_reg mux_config_render_basic_1_1_slices_0x02[] = {
@@ -181,6 +187,7 @@ static const struct i915_oa_reg mux_config_render_basic_1_1_slices_0x02[] = {
 	{ _MMIO(0x9888), 0x14bf000f },
 	{ _MMIO(0x9888), 0x14910014 },
 	{ _MMIO(0x9888), 0x14b10014 },
+	{ _MMIO(0x9888), 0x118a0317 },
 	{ _MMIO(0x9888), 0x13837be0 },
 	{ _MMIO(0x9888), 0x3b800060 },
 	{ _MMIO(0x9888), 0x3d800005 },
@@ -231,8 +238,12 @@ static const struct i915_oa_reg mux_config_render_basic_1_1_slices_0x02[] = {
 	{ _MMIO(0x9888), 0x16b30080 },
 	{ _MMIO(0x9888), 0x01888000 },
 	{ _MMIO(0x9888), 0x0d88b800 },
+	{ _MMIO(0x9888), 0x038a0380 },
+	{ _MMIO(0x9888), 0x058a000e },
 	{ _MMIO(0x9888), 0x1b8a0080 },
-	{ _MMIO(0x9888), 0x238b0040 },
+	{ _MMIO(0x9888), 0x078a0000 },
+	{ _MMIO(0x9888), 0x098a0000 },
+	{ _MMIO(0x9888), 0x238b2840 },
 	{ _MMIO(0x9888), 0x258b26a0 },
 	{ _MMIO(0x9888), 0x018c4000 },
 	{ _MMIO(0x9888), 0x0f8c4000 },
@@ -248,13 +259,13 @@ static const struct i915_oa_reg mux_config_render_basic_1_1_slices_0x02[] = {
 	{ _MMIO(0x9888), 0x0d831021 },
 	{ _MMIO(0x9888), 0x0f83572f },
 	{ _MMIO(0x9888), 0x01835680 },
-	{ _MMIO(0x9888), 0x038315ac },
-	{ _MMIO(0x9888), 0x0583002a },
+	{ _MMIO(0x9888), 0x0383002c },
 	{ _MMIO(0x9888), 0x11830000 },
 	{ _MMIO(0x9888), 0x19835400 },
 	{ _MMIO(0x9888), 0x1b830001 },
-	{ _MMIO(0x9888), 0x07830000 },
-	{ _MMIO(0x9888), 0x09830000 },
+	{ _MMIO(0x9888), 0x05830000 },
+	{ _MMIO(0x9888), 0x07834000 },
+	{ _MMIO(0x9888), 0x09834000 },
 	{ _MMIO(0x9888), 0x0184c000 },
 	{ _MMIO(0x9888), 0x07848000 },
 	{ _MMIO(0x9888), 0x0984c000 },
@@ -272,17 +283,16 @@ static const struct i915_oa_reg mux_config_render_basic_1_1_slices_0x02[] = {
 	{ _MMIO(0x9888), 0x1f80c000 },
 	{ _MMIO(0x9888), 0x1380c000 },
 	{ _MMIO(0x9888), 0x15804000 },
-	{ _MMIO(0xd24), 0x00000000 },
-	{ _MMIO(0x9888), 0x4d805550 },
-	{ _MMIO(0x9888), 0x4f800335 },
+	{ _MMIO(0x9888), 0x4d801550 },
+	{ _MMIO(0x9888), 0x4f800331 },
 	{ _MMIO(0x9888), 0x43800802 },
 	{ _MMIO(0x9888), 0x51800400 },
 	{ _MMIO(0x9888), 0x458004a1 },
 	{ _MMIO(0x9888), 0x53805555 },
 	{ _MMIO(0x9888), 0x47800421 },
 	{ _MMIO(0x9888), 0x31800000 },
-	{ _MMIO(0x9888), 0x3f800421 },
-	{ _MMIO(0x9888), 0x41800841 },
+	{ _MMIO(0x9888), 0x3f801421 },
+	{ _MMIO(0x9888), 0x41800845 },
 };
 
 static const struct i915_oa_reg *
@@ -306,6 +316,7 @@ static const struct i915_oa_reg b_counter_config_compute_basic[] = {
 	{ _MMIO(0x2714), 0x00800000 },
 	{ _MMIO(0x2720), 0x00000000 },
 	{ _MMIO(0x2724), 0x00800000 },
+	{ _MMIO(0x2740), 0x00000000 },
 };
 
 static const struct i915_oa_reg flex_eu_config_compute_basic[] = {
@@ -523,6 +534,7 @@ static const struct i915_oa_reg b_counter_config_render_pipe_profile[] = {
 	{ _MMIO(0x2720), 0x00000000 },
 	{ _MMIO(0x2714), 0xf0800000 },
 	{ _MMIO(0x2710), 0x00000000 },
+	{ _MMIO(0x2740), 0x00000000 },
 	{ _MMIO(0x2770), 0x0007ffea },
 	{ _MMIO(0x2774), 0x00007ffc },
 	{ _MMIO(0x2778), 0x0007affa },
@@ -875,6 +887,7 @@ static const struct i915_oa_reg b_counter_config_compute_extended[] = {
 	{ _MMIO(0x2720), 0x00000000 },
 	{ _MMIO(0x2714), 0xf0800000 },
 	{ _MMIO(0x2710), 0x00000000 },
+	{ _MMIO(0x2740), 0x00000000 },
 	{ _MMIO(0x2770), 0x0007fc2a },
 	{ _MMIO(0x2774), 0x0000bf00 },
 	{ _MMIO(0x2778), 0x0007fc6a },
@@ -1390,6 +1403,7 @@ static const struct i915_oa_reg b_counter_config_compute_l3_cache[] = {
 	{ _MMIO(0x2714), 0x30800000 },
 	{ _MMIO(0x2720), 0x00000000 },
 	{ _MMIO(0x2724), 0x30800000 },
+	{ _MMIO(0x2740), 0x00000000 },
 	{ _MMIO(0x2770), 0x0007fffa },
 	{ _MMIO(0x2774), 0x0000fefe },
 	{ _MMIO(0x2778), 0x0007fffa },
@@ -3481,6 +3495,127 @@ get_compute_extra_mux_config(struct drm_i915_private *dev_priv,
 	return mux_config_compute_extra;
 }
 
+static const struct i915_oa_reg b_counter_config_vme_pipe[] = {
+	{ _MMIO(0x2740), 0x00000000 },
+	{ _MMIO(0x2710), 0x00000000 },
+	{ _MMIO(0x2714), 0xf0800000 },
+	{ _MMIO(0x2720), 0x00000000 },
+	{ _MMIO(0x2724), 0x30800000 },
+	{ _MMIO(0x2770), 0x00100030 },
+	{ _MMIO(0x2774), 0x0000fff9 },
+	{ _MMIO(0x2778), 0x00000002 },
+	{ _MMIO(0x277c), 0x0000fffc },
+	{ _MMIO(0x2780), 0x00000002 },
+	{ _MMIO(0x2784), 0x0000fff3 },
+	{ _MMIO(0x2788), 0x00100180 },
+	{ _MMIO(0x278c), 0x0000ffcf },
+	{ _MMIO(0x2790), 0x00000002 },
+	{ _MMIO(0x2794), 0x0000ffcf },
+	{ _MMIO(0x2798), 0x00000002 },
+	{ _MMIO(0x279c), 0x0000ff3f },
+};
+
+static const struct i915_oa_reg flex_eu_config_vme_pipe[] = {
+	{ _MMIO(0xe458), 0x00005004 },
+	{ _MMIO(0xe558), 0x00008003 },
+};
+
+static const struct i915_oa_reg mux_config_vme_pipe[] = {
+	{ _MMIO(0x9888), 0x14100812 },
+	{ _MMIO(0x9888), 0x14125800 },
+	{ _MMIO(0x9888), 0x161200c0 },
+	{ _MMIO(0x9888), 0x14300812 },
+	{ _MMIO(0x9888), 0x14325800 },
+	{ _MMIO(0x9888), 0x163200c0 },
+	{ _MMIO(0x9888), 0x005c4000 },
+	{ _MMIO(0x9888), 0x065c8000 },
+	{ _MMIO(0x9888), 0x085cc000 },
+	{ _MMIO(0x9888), 0x0a5cc000 },
+	{ _MMIO(0x9888), 0x0c5cc000 },
+	{ _MMIO(0x9888), 0x003d8000 },
+	{ _MMIO(0x9888), 0x0e3d8000 },
+	{ _MMIO(0x9888), 0x183d2800 },
+	{ _MMIO(0x9888), 0x00584000 },
+	{ _MMIO(0x9888), 0x06588000 },
+	{ _MMIO(0x9888), 0x0858c000 },
+	{ _MMIO(0x9888), 0x005b4000 },
+	{ _MMIO(0x9888), 0x0e5b4000 },
+	{ _MMIO(0x9888), 0x185b9400 },
+	{ _MMIO(0x9888), 0x1a5b002a },
+	{ _MMIO(0x9888), 0x0c1f0800 },
+	{ _MMIO(0x9888), 0x0e1faa00 },
+	{ _MMIO(0x9888), 0x101f002a },
+	{ _MMIO(0x9888), 0x00384000 },
+	{ _MMIO(0x9888), 0x0e384000 },
+	{ _MMIO(0x9888), 0x16384000 },
+	{ _MMIO(0x9888), 0x18380155 },
+	{ _MMIO(0x9888), 0x00392000 },
+	{ _MMIO(0x9888), 0x06398000 },
+	{ _MMIO(0x9888), 0x0839a000 },
+	{ _MMIO(0x9888), 0x0a39a000 },
+	{ _MMIO(0x9888), 0x0c39a000 },
+	{ _MMIO(0x9888), 0x00100047 },
+	{ _MMIO(0x9888), 0x06101a80 },
+	{ _MMIO(0x9888), 0x10100000 },
+	{ _MMIO(0x9888), 0x0810c000 },
+	{ _MMIO(0x9888), 0x0811c000 },
+	{ _MMIO(0x9888), 0x08126151 },
+	{ _MMIO(0x9888), 0x10120000 },
+	{ _MMIO(0x9888), 0x00134000 },
+	{ _MMIO(0x9888), 0x0e134000 },
+	{ _MMIO(0x9888), 0x161300a0 },
+	{ _MMIO(0x9888), 0x0a301ac7 },
+	{ _MMIO(0x9888), 0x10300000 },
+	{ _MMIO(0x9888), 0x0c30c000 },
+	{ _MMIO(0x9888), 0x0c31c000 },
+	{ _MMIO(0x9888), 0x0c326151 },
+	{ _MMIO(0x9888), 0x10320000 },
+	{ _MMIO(0x9888), 0x16332a00 },
+	{ _MMIO(0x9888), 0x18330001 },
+	{ _MMIO(0x9888), 0x018a8000 },
+	{ _MMIO(0x9888), 0x0f8a8000 },
+	{ _MMIO(0x9888), 0x198a8000 },
+	{ _MMIO(0x9888), 0x1b8a2aa0 },
+	{ _MMIO(0x9888), 0x238b0020 },
+	{ _MMIO(0x9888), 0x258b5550 },
+	{ _MMIO(0x9888), 0x278b0001 },
+	{ _MMIO(0x9888), 0x1f850080 },
+	{ _MMIO(0x9888), 0x2185aaa0 },
+	{ _MMIO(0x9888), 0x23850002 },
+	{ _MMIO(0x9888), 0x01834000 },
+	{ _MMIO(0x9888), 0x0f834000 },
+	{ _MMIO(0x9888), 0x19835400 },
+	{ _MMIO(0x9888), 0x1b830015 },
+	{ _MMIO(0x9888), 0x01844000 },
+	{ _MMIO(0x9888), 0x07848000 },
+	{ _MMIO(0x9888), 0x0984c000 },
+	{ _MMIO(0x9888), 0x0b84c000 },
+	{ _MMIO(0x9888), 0x0d84c000 },
+	{ _MMIO(0x9888), 0x11804000 },
+	{ _MMIO(0x9888), 0x17808000 },
+	{ _MMIO(0x9888), 0x1980c000 },
+	{ _MMIO(0x9888), 0x1b80c000 },
+	{ _MMIO(0x9888), 0x1d80c000 },
+	{ _MMIO(0x9888), 0x4d800000 },
+	{ _MMIO(0x9888), 0x3d800800 },
+	{ _MMIO(0x9888), 0x4f800000 },
+	{ _MMIO(0x9888), 0x43800002 },
+	{ _MMIO(0x9888), 0x51800000 },
+	{ _MMIO(0x9888), 0x45800884 },
+	{ _MMIO(0x9888), 0x53800000 },
+	{ _MMIO(0x9888), 0x47800002 },
+	{ _MMIO(0x9888), 0x21800000 },
+	{ _MMIO(0x9888), 0x31800000 },
+};
+
+static const struct i915_oa_reg *
+get_vme_pipe_mux_config(struct drm_i915_private *dev_priv,
+			int *len)
+{
+	*len = ARRAY_SIZE(mux_config_vme_pipe);
+	return mux_config_vme_pipe;
+}
+
 static const struct i915_oa_reg b_counter_config_test_oa[] = {
 	{ _MMIO(0x2740), 0x00000000 },
 	{ _MMIO(0x2744), 0x00800000 },
@@ -3937,6 +4072,26 @@ int i915_oa_select_metric_set_bdw(struct drm_i915_private *dev_priv)
 			b_counter_config_compute_extra;
 		dev_priv->perf.oa.b_counter_regs_len =
 			ARRAY_SIZE(b_counter_config_compute_extra);
+
+		return 0;
+	case METRIC_SET_ID_VME_PIPE:
+		dev_priv->perf.oa.mux_regs =
+			get_vme_pipe_mux_config(dev_priv,
+						&dev_priv->perf.oa.mux_regs_len);
+		if (!dev_priv->perf.oa.mux_regs) {
+			DRM_DEBUG_DRIVER("No suitable MUX config for \"VME_PIPE\" metric set");
+
+			/* EINVAL because *_register_sysfs already checked this
+			 * and so it wouldn't have been advertised so userspace and
+			 * so shouldn't have been requested
+			 */
+			return -EINVAL;
+		}
+
+		dev_priv->perf.oa.b_counter_regs =
+			b_counter_config_vme_pipe;
+		dev_priv->perf.oa.b_counter_regs_len =
+			ARRAY_SIZE(b_counter_config_vme_pipe);
 
 		return 0;
 	case METRIC_SET_ID_TEST_OA:
@@ -4405,6 +4560,28 @@ static struct attribute_group group_compute_extra = {
 };
 
 static ssize_t
+show_vme_pipe_id(struct device *kdev, struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", METRIC_SET_ID_VME_PIPE);
+}
+
+static struct device_attribute dev_attr_vme_pipe_id = {
+	.attr = { .name = "id", .mode = 0444 },
+	.show = show_vme_pipe_id,
+	.store = NULL,
+};
+
+static struct attribute *attrs_vme_pipe[] = {
+	&dev_attr_vme_pipe_id.attr,
+	NULL,
+};
+
+static struct attribute_group group_vme_pipe = {
+	.name = "e1743ca0-7fc8-410b-a066-de7bbb9280b7",
+	.attrs =  attrs_vme_pipe,
+};
+
+static ssize_t
 show_test_oa_id(struct device *kdev, struct device_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%d\n", METRIC_SET_ID_TEST_OA);
@@ -4532,6 +4709,11 @@ i915_perf_register_sysfs_bdw(struct drm_i915_private *dev_priv)
 		if (ret)
 			goto error_compute_extra;
 	}
+	if (get_vme_pipe_mux_config(dev_priv, &mux_len)) {
+		ret = sysfs_create_group(dev_priv->perf.metrics_kobj, &group_vme_pipe);
+		if (ret)
+			goto error_vme_pipe;
+	}
 	if (get_test_oa_mux_config(dev_priv, &mux_len)) {
 		ret = sysfs_create_group(dev_priv->perf.metrics_kobj, &group_test_oa);
 		if (ret)
@@ -4541,6 +4723,9 @@ i915_perf_register_sysfs_bdw(struct drm_i915_private *dev_priv)
 	return 0;
 
 error_test_oa:
+	if (get_test_oa_mux_config(dev_priv, &mux_len))
+		sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_vme_pipe);
+error_vme_pipe:
 	if (get_test_oa_mux_config(dev_priv, &mux_len))
 		sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_compute_extra);
 error_compute_extra:
@@ -4649,6 +4834,8 @@ i915_perf_unregister_sysfs_bdw(struct drm_i915_private *dev_priv)
 		sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_tdl_2);
 	if (get_compute_extra_mux_config(dev_priv, &mux_len))
 		sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_compute_extra);
+	if (get_vme_pipe_mux_config(dev_priv, &mux_len))
+		sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_vme_pipe);
 	if (get_test_oa_mux_config(dev_priv, &mux_len))
 		sysfs_remove_group(dev_priv->perf.metrics_kobj, &group_test_oa);
 }
