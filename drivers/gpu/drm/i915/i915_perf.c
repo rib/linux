@@ -1601,6 +1601,7 @@ static int configure_all_contexts(struct drm_i915_private *dev_priv)
 {
 	struct i915_gem_context *ctx;
 	int ret;
+	int i;
 
 	ret = i915_mutex_lock_interruptible(&dev_priv->drm);
 	if (ret)
@@ -1637,6 +1638,11 @@ static int configure_all_contexts(struct drm_i915_private *dev_priv)
 				      (dev_priv->perf.oa.periodic ?
 				       GEN8_OA_TIMER_ENABLE : 0) |
 				      GEN8_OA_COUNTER_RESUME));
+
+	for (i = 0; i < dev_priv->perf.oa.flex_regs_len; i++) {
+		const struct i915_oa_reg *reg = dev_priv->perf.oa.flex_regs + i;
+		DRM_ERROR("FLEX: WRITE(%x, %x)\n", i915_mmio_reg_offset(reg->addr), reg->value);
+	}
 
 	config_oa_regs(dev_priv, dev_priv->perf.oa.flex_regs,
 			dev_priv->perf.oa.flex_regs_len);
@@ -1715,19 +1721,24 @@ static void chv_disable_metric_set(struct drm_i915_private *dev_priv)
 static int skl_enable_metric_set(struct drm_i915_private *dev_priv)
 {
 	if (IS_SKL_GT2(dev_priv)) {
+		DRM_ERROR("SKL GT2: set metric set\n");
 		int ret = i915_oa_select_metric_set_sklgt2(dev_priv);
 		if (ret)
 			return ret;
 	} else if (IS_SKL_GT3(dev_priv)) {
+		DRM_ERROR("SKL GT3: set metric set\n");
 		int ret = i915_oa_select_metric_set_sklgt3(dev_priv);
 		if (ret)
 			return ret;
 	} else if (IS_SKL_GT4(dev_priv)) {
+		DRM_ERROR("SKL GT4: set metric set\n");
 		int ret = i915_oa_select_metric_set_sklgt4(dev_priv);
 		if (ret)
 			return ret;
-	} else
+	} else {
+		DRM_ERROR("SKL GTx: unsupported\n");
 		return -ENOTSUPP;
+	}
 
 	/* We disable slice/unslice clock ratio change reports on SKL since
 	 * they are too noisy. The HW generates a lot redundant reports where
@@ -2136,6 +2147,8 @@ static void gen8_update_reg_state_unlocked(struct intel_engine_cs *engine,
 
 		reg_state[offset] = i915_mmio_reg_offset(flex_regs[i].addr);
 		reg_state[offset+1] = flex_regs[i].value;
+		DRM_ERROR("FLEX: state[%x] = %x\n", offset, i915_mmio_reg_offset(flex_regs[i].addr));
+		DRM_ERROR("FLEX: state[%x+1] = %x\n", offset, flex_regs[i].value);
 	}
 
 	atomic_set(&ctx->engine[engine->id].oa_state_dirty, false);
